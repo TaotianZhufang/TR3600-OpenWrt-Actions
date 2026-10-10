@@ -133,7 +133,11 @@ echo "src-git istore https://github.com/linkease/istore;main" >> feeds.conf.defa
 
 git clone --depth=1 https://github.com/sirpdboy/luci-app-poweroffdevice.git package/custom/poweroffdevice
 git clone --depth=1 https://github.com/isalikai/luci-app-owq-wol.git package/custom/owq-wol
-git clone --depth=1 https://github.com/gdy666/luci-app-lucky.git package/custom/lucky
+# luci-app-lucky (gdy666) 已移除：套件不夠完善，暫時不編進去。
+# 要加回來就取消下面這行註解，並在 config 補上：
+#   CONFIG_PACKAGE_luci-app-lucky=y
+#   CONFIG_PACKAGE_luci-i18n-lucky-zh-cn=y
+# git clone --depth=1 https://github.com/gdy666/luci-app-lucky.git package/custom/lucky
 git clone --depth=1 https://github.com/sbwml/luci-app-openlist2.git package/custom/openlist2
 
 git clone --depth=1 https://github.com/stackia/rtp2httpd.git package/custom/rtp2httpd

@@ -6,6 +6,9 @@
 #
 # TR3600 build kit version:
 #   * same tweaks as liangcanming/Cudy-tr3600-v1-6.12 (default IP, argon theme)
+#     FIXED: the argon-theme tweak used to sed package/base-files/files/etc/config/luci,
+#     which no longer exists in openwrt-25.12. With `set -e` that killed the build
+#     (build #2). It is now guarded and non-fatal.
 #   * ADDED: apply the four TR3600 board fixes
 #       0001-tr3600-fan-pwm0.patch              -> PWM fan channel 1 -> 0
 #       0004-tr3600-led-colours.patch           -> GPIO48 white / GPIO46 red
@@ -57,11 +60,36 @@ sed -i 's/192.168.1.1/192.168.6.1/g' package/base-files/files/bin/config_generat
 # 修改默认时区（可选）
 # =========================================================
 
-# 设置默认LuCI主题为argon
-sed -i 's/luci.main.theme=bootstrap/luci.main.theme=argon/' package/base-files/files/etc/config/luci
-# 备份兼容写法，防止上面没匹配到
-echo "uci set luci.main.theme='argon'" >> package/base-files/files/etc/uci-defaults/99-default-theme
-echo "uci commit luci" >> package/base-files/files/etc/uci-defaults/99-default-theme
+# 设置默认 LuCI 主题为 argon
+#
+# 注意：openwrt-25.12 的 base-files 已经**不再提供** etc/config/luci，
+# 所以原脚本这一行会让 `set -e` 直接把整个编译打死（build #2 就是这样挂的）：
+#   sed: can't read package/base-files/files/etc/config/luci: No such file or directory
+#
+# 其实主题在本套件的 config 里已经指定好了：
+#   CONFIG_PACKAGE_luci-theme-argon=y
+#   CONFIG_DEFAULT_THEME=argon
+# 下面的处理只是「锦上添花」，一律不致命：文件在就顺手改，不在就跳过；
+# 另外写一份 uci-defaults，首次开机时兜底设置主题。
+LUCI_CFG=package/base-files/files/etc/config/luci
+if [ -f "$LUCI_CFG" ]; then
+	sed -i 's/luci.main.theme=bootstrap/luci.main.theme=argon/' "$LUCI_CFG"
+	echo "[tr3600-fix] patched $LUCI_CFG"
+else
+	echo "[tr3600-fix] $LUCI_CFG 不存在（openwrt-25.12 已移除），跳过；改用 uci-defaults"
+fi
+
+THEME_UCI=package/base-files/files/etc/uci-defaults/99-default-theme
+mkdir -p "$(dirname "$THEME_UCI")"
+cat > "$THEME_UCI" <<'EOS'
+#!/bin/sh
+# TR3600 build kit: default LuCI theme
+uci -q set luci.main.theme='argon'
+uci -q commit luci
+exit 0
+EOS
+chmod 0755 "$THEME_UCI"
+echo "[tr3600-fix] installed $THEME_UCI"
 
 # =========================================================
 # 修正 1/2 — 板级 DTS：風扇通道 / LED 顏色 / WiFi MAC / 溫控曲線

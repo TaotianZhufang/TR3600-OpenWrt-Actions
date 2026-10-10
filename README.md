@@ -54,7 +54,7 @@ tr3600-fan.js  ff39ef3e6175e161974bb97553ca20df0ce7b9c57937225fdb7a140fb488b43b
 
 ```
 .
-├── .github/workflows/build-openwrt-iStore-Amin.yml   # 唯一的 workflow
+├── .github/workflows/build-openwrt-iStore-Ajay.yml   # 唯一的 workflow
 ├── diy-iStore-part1.sh      # feeds 之前：裝插件源 + chmod + patch 0003
 ├── diy-iStore-part2.sh      # feeds 之後：套用 0001/0004/0005/0006 + 0002
 ├── diy-partX.sh             # 關掉 Ruby YJIT，避免 Rust 長編譯
@@ -77,7 +77,7 @@ tr3600-fan.js  ff39ef3e6175e161974bb97553ca20df0ce7b9c57937225fdb7a140fb488b43b
 
 ## 怎麼跑
 
-1. 進 **Actions** 分頁 → 左側 **Build Cudy TR3600 OpenWrt iStore Amin**
+1. 進 **Actions** 分頁 → 左側 **Build Cudy TR3600 OpenWrt iStore Ajay**
 2. 右側 **Run workflow** → branch 選 `main` → **Run workflow**
 3. 等 **90–180 分鐘**（第一次要建 toolchain，最慢）
 
@@ -96,7 +96,7 @@ tr3600-fan.js  ff39ef3e6175e161974bb97553ca20df0ce7b9c57937225fdb7a140fb488b43b
 
 編譯成功後兩處可取：
 
-- **Actions → 該次 run → Artifacts**：`Cudy-TR3600-iStore-Amin-<時間>`
+- **Actions → 該次 run → Artifacts**：`Cudy-TR3600-iStore-Ajay-<時間>`
 - **Releases**：workflow 會自動建 Release（只保留最近 10 個）
 
 要的是 `*sysupgrade.bin`。

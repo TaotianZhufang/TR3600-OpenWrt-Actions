@@ -1,4 +1,4 @@
-name: Build Cudy TR3600 OpenWrt iStore Amin
+name: Build Cudy TR3600 OpenWrt iStore Ajay
 
 # =============================================================================
 # TR3600 build kit version
@@ -23,6 +23,11 @@ name: Build Cudy TR3600 OpenWrt iStore Amin
 #      倉庫（liangcanming 帳號 2026-10 全部 404，build #1 就是死在這裡）。
 #      diy-iStore-part1.sh 之後多一個守門步驟：確認套件存在且腳本是 0755，
 #      否則立刻失敗——這個 0644 問題正是本套件要修的原始症狀之一。
+#   5. 移除 luci-app-lucky（套件不夠完善）：part1 不再 clone，
+#      config 也拿掉 CONFIG_PACKAGE_luci-app-lucky / luci-i18n-lucky-zh-cn。
+#   6. diy-iStore-part2.sh 的 argon 主題設定改成不致命：openwrt-25.12 的
+#      base-files 已無 etc/config/luci，原腳本的 sed 在 `set -e` 下會直接
+#      打死編譯（build #2 的死因）。主題本來就由 CONFIG_DEFAULT_THEME 決定。
 # =============================================================================
 
 on:
@@ -36,7 +41,7 @@ on:
 env:
   DEVICE_NAME: Cudy-TR3600
   DEVICE_MODEL: Cudy TR3600
-  FIRMWARE_PREFIX: Cudy-TR3600-Amin
+  FIRMWARE_PREFIX: Cudy-TR3600-Ajay
   REPO_URL: https://github.com/soapmancn/openwrt
   REPO_BRANCH: agent/cudy-tr3600-v1-6.12
   # 2026-08-11 head of the branch above; used only as a reference for the
@@ -385,7 +390,7 @@ jobs:
       uses: actions/upload-artifact@v4
       if: steps.organize.outputs.status == 'success' && !cancelled()
       with:
-        name: ${{ env.DEVICE_NAME }}-iStore-Amin-${{ env.BUILD_TIMESTAMP }}
+        name: ${{ env.DEVICE_NAME }}-iStore-Ajay-${{ env.BUILD_TIMESTAMP }}
         path: ${{ env.FIRMWARE_DIR }}
 
     # =========================================================
@@ -400,19 +405,24 @@ jobs:
         BUILD_TIME="$BUILD_TIMESTAMP"
         DEVICE="$DEVICE_NAME"
 
-        RELEASE_TAG="${DEVICE}-iStore-Amin-${AUTHOR}-${BRANCH}-${BUILD_TIME}"
+        RELEASE_TAG="${DEVICE}-iStore-Ajay-${AUTHOR}-${BRANCH}-${BUILD_TIME}"
         RELEASE_TAG=$(echo "$RELEASE_TAG" | sed 's/[^a-zA-Z0-9._-]/-/g')
 
+        # 固件号：人一眼能认出这一版是哪一个构建
+        FIRMWARE_NO="Ajay-${BUILD_TIME}-r${{ github.run_number }}"
+
         echo "release_tag=${RELEASE_TAG}" >> "$GITHUB_OUTPUT"
+        echo "firmware_no=${FIRMWARE_NO}" >> "$GITHUB_OUTPUT"
 
         cat <<EOF > release.txt
-        ## 🚀 ${{ env.DEVICE_MODEL }} iStore OpenWrt 固件 (Amin 定制版 + TR3600 build kit)
+        ## 🚀 ${{ env.DEVICE_MODEL }} iStore OpenWrt 固件 (Ajay 定制版 + TR3600 build kit)
 
         ### 📋 编译信息
         | 项目 | 详情 |
         |------|------|
         | 📱 设备型号 | \`${{ env.DEVICE_MODEL }}\` |
-        | 🏷️ 固件标识 | ** iStore Amin 定制版 + 風扇/WiFi 修正** |
+        | 🔢 **固件号** | **\`${FIRMWARE_NO}\`** |
+        | 🏷️ 固件标识 | ** iStore Ajay 定制版 + 風扇/LED/MAC/WiFi 修正** |
         | 👤 源码作者 | \`${AUTHOR}\` |
         | 🔗 源码仓库 | ${{ env.REPO_URL }} |
         | 🌿 分支版本 | \`${BRANCH}\` |
@@ -420,9 +430,24 @@ jobs:
         | 🏷️ 版本标签 | \`${RELEASE_TAG}\` |
         | 📄 配置文件 | \`${{ env.CONFIG_FILE }}\` |
 
+        ### 📝 备注
+        - 🔢 **固件号**：\`${FIRMWARE_NO}\`（构建号 r${{ github.run_number }}）
+        - 📦 **风扇插件**：已内建在仓库 \`vendor/luci-app-tr3600-fan\`，不依赖任何第三方仓库
+        - 🩹 **修正补丁**：6 个 —— 风扇 PWM 通道 / LED 颜色 / WiFi MAC 布局 / 温控曲线 /
+          mt76 STA_REC 顺序 / LuCI 风扇页 dirty flag
+        - 🧪 **上机自检**：\`scripts/tr3600-verify.sh\` 会核对以上每一项
+        - 🚫 **本版移除**：\`luci-app-lucky\`（套件不够完善，暂不编入）
+        - 👤 **定制**：Ajay
+
         ### 🔧 本版修正
-        - ✅ **風扇**：DTS PWM 通道 1 → 0（\`pwms = <&pwm 0 50000 0>\`），風扇測得到、可調速
+        - ✅ **風扇 PWM**：DTS 由 PWM 通道 1 → **通道 0**（\`pwms = <&pwm 0 50000 0>\`），
+          \`pinctrl-0\` 改為 \`pwm_pins\`，風扇測得到、可調速
         - ✅ **風扇腳本權限**：\`/usr/sbin/tr3600-fan\`、\`/etc/init.d/tr3600-fan\` 由 0644 → 0755
+          （否則 \`exec_direct\` EACCES，LuCI 顯示「未檢測到風扇」）
+        - ✅ **風扇溫控曲線**：60 °C 以下**停轉**，65 / 75 / 85 °C 三段
+          （上游 40 °C 就鎖 50 %，待機時一直低鳴）
+        - ✅ **LED 顏色**：\`led-0\` = **白**@GPIO48、\`led-1\` = **紅**@GPIO46（本板**無藍燈**）
+        - ✅ **WiFi MAC**：2.4 GHz = **base+0x00**、5 GHz = **base+0x10**（與廠商一致）
         - ✅ **無線**：mt76 \`mt7996_mcu_add_sta()\` 改為先送 STA_REC、後送 VoW/DRR
           （修正 \`wifi down/up\` 後客戶端再也連不上的問題）
 
@@ -447,7 +472,7 @@ jobs:
         - 本固件仅供学习研究使用
 
         ---
-        > 📌 **固件标识**:iStore Amin 定制版 + TR3600 build kit | 构建时间: $(date '+%Y-%m-%d %H:%M:%S')
+        > 📌 **固件号**: \`${FIRMWARE_NO}\` | **固件标识**: iStore Ajay 定制版 + TR3600 build kit | 构建时间: $(date '+%Y-%m-%d %H:%M:%S')
         EOF
 
         echo "status=success" >> "$GITHUB_OUTPUT"
@@ -462,7 +487,7 @@ jobs:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
         tag_name: ${{ steps.tag.outputs.release_tag }}
-        name: ${{ env.DEVICE_MODEL }} OpenWrt iStore Amin 定制版 - ${{ env.BUILD_TIMESTAMP }}
+        name: ${{ env.DEVICE_MODEL }} OpenWrt iStore Ajay 定制版 - ${{ env.BUILD_TIMESTAMP }}
         body_path: release.txt
         files: |
           ${{ env.FIRMWARE_DIR }}/*.bin
@@ -481,6 +506,6 @@ jobs:
       with:
         keep_latest: 10
         delete_tags: true
-        delete_tag_pattern: '^${{ env.DEVICE_NAME }}-iStore-Amin-'
+        delete_tag_pattern: '^${{ env.DEVICE_NAME }}-iStore-Ajay-'
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
