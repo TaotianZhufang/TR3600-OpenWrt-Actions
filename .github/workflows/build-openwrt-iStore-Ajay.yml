@@ -28,6 +28,11 @@ name: Build Cudy TR3600 OpenWrt iStore Ajay
 #   6. diy-iStore-part2.sh 的 argon 主題設定改成不致命：openwrt-25.12 的
 #      base-files 已無 etc/config/luci，原腳本的 sed 在 `set -e` 下會直接
 #      打死編譯（build #2 的死因）。主題本來就由 CONFIG_DEFAULT_THEME 決定。
+#   7. Release / Artifact 改成只發佈白名單檔案：原本 `*.bin` 會把
+#      mediatek/filogic 目錄裡 mt7981/mt7986/mt7987/mt7988 的
+#      `*-ram-*-bl2.bin`（**別顆晶片**的 BL2 RAM loader）一起掛上來，
+#      使用者刷錯就是磚。現在 Organize 步驟會挑出 TR3600 自己的
+#      sysupgrade / initramfs / manifest 放到 release/，只發佈那幾個。
 # =============================================================================
 
 on:
@@ -324,6 +329,50 @@ jobs:
         echo "📦 固件文件列表:"
         ls -lah
 
+        # -----------------------------------------------------------------
+        # 只挑出「這台機器」的產物另外放一份，避免別顆晶片的 bootloader 被發佈。
+        #
+        # mediatek/filogic 的 bin 目錄裡會混進 mt7981/mt7986/mt7987/mt7988 的
+        # *-ram-*-bl2.bin —— 那些是「別顆晶片」的 BL2 RAM loader。它們只是
+        # 幾百 KB 的小檔，但外觀跟 sysupgrade 映像很像，使用者一旦刷錯就是磚。
+        # 所以 Release / Artifact 都只從這個白名單目錄出。
+        # -----------------------------------------------------------------
+        RELEASE_DIR="$PWD/release"
+        rm -rf "$RELEASE_DIR"
+        mkdir -p "$RELEASE_DIR"
+
+        shopt -s nullglob
+        for f in *cudy_tr3600-v1-squashfs-sysupgrade.bin \
+                 *cudy_tr3600-v1-initramfs-kernel.bin \
+                 *.manifest sha256sums; do
+          [ -f "$f" ] || continue
+          cp -a "$f" "$RELEASE_DIR/"
+        done
+        shopt -u nullglob
+
+        SYSUP=$(ls -1 "$RELEASE_DIR"/*cudy_tr3600-v1-squashfs-sysupgrade.bin 2>/dev/null | head -1)
+        if [ -z "$SYSUP" ]; then
+          echo "::error title=缺少 sysupgrade 映像::在 $PWD 找不到 *cudy_tr3600-v1-squashfs-sysupgrade.bin，不產出 Release。"
+          exit 1
+        fi
+
+        echo "FIRMWARE_RELEASE_DIR=$RELEASE_DIR" >> "$GITHUB_ENV"
+
+        echo
+        echo "✅ 將發佈的檔案（只有這些）:"
+        ls -lah "$RELEASE_DIR"
+
+        echo
+        echo "⛔ 以下檔案是別顆晶片的 bootloader，一律不發佈（刷了會磚）:"
+        shopt -s nullglob
+        STRAY=(*-ram-*-bl2.bin)
+        shopt -u nullglob
+        if [ ${#STRAY[@]} -eq 0 ]; then
+          echo "   （沒有）"
+        else
+          for f in "${STRAY[@]}"; do echo "   $f"; done
+        fi
+
     # =========================================================
     # 13b. 【新增】把關鍵修正的證據存成 log artifact
     # =========================================================
@@ -408,7 +457,8 @@ jobs:
       if: steps.organize.outputs.status == 'success' && !cancelled()
       with:
         name: ${{ env.DEVICE_NAME }}-iStore-Ajay-${{ env.BUILD_TIMESTAMP }}
-        path: ${{ env.FIRMWARE_DIR }}
+        # 只上傳白名單目錄，別顆晶片的 *-ram-*-bl2.bin 不會進 artifact
+        path: ${{ env.FIRMWARE_RELEASE_DIR }}
 
     # =========================================================
     # 15. 生成 Release Tag 和说明
@@ -475,10 +525,23 @@ jobs:
         - ✅ **iStore 应用商店**
 
         ### 🔧 刷机指南
-        1. 下载对应固件文件
-        2. 通过 Cudy 过渡中间固件后WEB网页后台或 Uboot 刷入
+
+        | 文件 | 用途 |
+        |------|------|
+        | ✅ \`openwrt-mediatek-filogic-cudy_tr3600-v1-squashfs-sysupgrade.bin\` | **要刷的就是这个** |
+        | 🧯 \`openwrt-mediatek-filogic-cudy_tr3600-v1-initramfs-kernel.bin\` | 救援 / 救砖用（内存启动） |
+        | 📄 \`openwrt-mediatek-filogic.manifest\` | 套件清单，**不是固件，不要刷** |
+
+        1. 下载上面那个 \`…cudy_tr3600-v1-squashfs-sysupgrade.bin\`
+        2. 通过 Cudy 过渡中间固件后 WEB 网页后台或 U-Boot 刷入
         3. 默认 IP: \`192.168.6.1\`
         4. 默认密码: \`password\`（空密码版本直接回车登录）
+
+        > ⚠️ **本 Release 只包含 TR3600 自己的两个映像 + manifest。**
+        > 早期版本会误把 \`mt7981-ram-*-bl2.bin\`、\`mt7986-ram-*-bl2.bin\`、
+        > \`mt7987-ram-comb-bl2.bin\`、\`mt7988-ram-*-bl2.bin\` 一起挂上来 ——
+        > 那些是**别颗芯片**的 BL2 RAM loader，刷进 TR3600 会**直接变砖**。
+        > 如果你在旧 Release 里看到它们，**绝对不要碰**。
 
         ### ⚠️ 免责声明
         - 刷机有风险，请谨慎操作
@@ -503,11 +566,12 @@ jobs:
         tag_name: ${{ steps.tag.outputs.release_tag }}
         name: ${{ env.DEVICE_MODEL }} OpenWrt iStore Ajay 定制版 - ${{ env.BUILD_TIMESTAMP }}
         body_path: release.txt
+        # 只發佈 Organize 步驟挑出來的白名單檔案。
+        # 原本寫 ${{ env.FIRMWARE_DIR }}/*.bin，會把 mediatek/filogic 目錄裡
+        # mt7981/mt7986/mt7987/mt7988 的 *-ram-*-bl2.bin（別顆晶片的 BL2 RAM
+        # loader）一起掛上來 —— 那些刷了會磚。
         files: |
-          ${{ env.FIRMWARE_DIR }}/*.bin
-          ${{ env.FIRMWARE_DIR }}/*.itb
-          ${{ env.FIRMWARE_DIR }}/*.manifest
-          ${{ env.FIRMWARE_DIR }}/*.sha256sums
+          ${{ env.FIRMWARE_RELEASE_DIR }}/*
         draft: false
         prerelease: false
 
