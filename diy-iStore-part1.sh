@@ -6,6 +6,14 @@
 #
 # TR3600 build kit version:
 #   * same feed/plugin set as liangcanming/Cudy-tr3600-v1-6.12
+#   * CHANGED: luci-app-tr3600-fan is no longer cloned from GitHub.
+#     The upstream repo (liangcanming/luci-app-tr3600-fan) and the whole
+#     liangcanming account went 404 in 2026-10, which killed build #1 with
+#     "fatal: could not read Username for 'https://github.com'". The package
+#     is now vendored in this repository under vendor/luci-app-tr3600-fan/
+#     (byte-identical to MichaelJiangg/luci-app-tr3600-fan, which is the
+#     upstream the fix patches were written against). A clone from GitHub is
+#     kept only as a fallback if the vendored copy is missing.
 #   * ADDED: force the tr3600-fan init script and helper to be executable.
 #     The luci-app-tr3600-fan git tree stores every file as mode 100644, and
 #     OpenWrt copies the package 'root/' directory with $(CP) = "cp -fpR",
@@ -19,7 +27,19 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+# Locate the build-kit repo root. In GitHub Actions the workflow copies this
+# script into the openwrt/ checkout and runs it from there, so the repo root
+# is one level up. When run straight from the repo root (local testing) it is
+# SCRIPT_DIR itself. Prefer whichever one actually contains patches/.
+if [ -d "$SCRIPT_DIR/patches" ]; then
+	REPO_ROOT="$SCRIPT_DIR"
+elif [ -d "$SCRIPT_DIR/../patches" ]; then
+	REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+else
+	REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+	echo "[tr3600-fix] WARNING: no patches/ directory found near $SCRIPT_DIR"
+fi
 PATCHDIR="$REPO_ROOT/patches"
 
 mkdir -p package/custom
@@ -51,12 +71,31 @@ git clone --depth=1 https://github.com/QiuSimons/vmlinux-btf.git package/custom/
 git clone --depth=1 https://github.com/fw876/helloworld.git package/custom/ssrp
 
 # =========================================================
-# Cudy TR3600 风扇控制插件
+# Cudy TR3600 风扇控制插件（内建，不依赖第三方仓库）
 # =========================================================
-git clone --depth=1 https://github.com/liangcanming/luci-app-tr3600-fan.git package/custom/luci-app-tr3600-fan
+# 原版这里是：
+#   git clone --depth=1 https://github.com/liangcanming/luci-app-tr3600-fan.git
+# 但 liangcanming 名下仓库（含 Actions 外壳仓库 Cudy-tr3600-v1-6.12）在
+# 2026-10 已全部 404，导致 build #1 直接失败：
+#   fatal: could not read Username for 'https://github.com'
+# 因此把整个套件内建在本仓库 vendor/luci-app-tr3600-fan/，
+# 与 MichaelJiangg/luci-app-tr3600-fan 逐字节相同
+# （已用 SHA256 与 TR3600-build-kit/reference/ 快照比对通过），
+# 这样即使第三方仓库再次消失，编译也不会受影响。
+VENDOR_FAN="$REPO_ROOT/vendor/luci-app-tr3600-fan"
+FANPKG="package/custom/luci-app-tr3600-fan"
+
+rm -rf "$FANPKG"
+if [ -d "$VENDOR_FAN" ]; then
+	echo "[tr3600-fix] 使用内建风扇套件: $VENDOR_FAN"
+	cp -a "$VENDOR_FAN" "$FANPKG"
+else
+	echo "[tr3600-fix] WARNING: $VENDOR_FAN 不存在，回退到上游 clone"
+	git clone --depth=1 https://github.com/MichaelJiangg/luci-app-tr3600-fan.git "$FANPKG" \
+		|| git clone --depth=1 https://github.com/liangcanming/luci-app-tr3600-fan.git "$FANPKG"
+fi
 
 # --- TR3600 build kit fix: make the fan helper + init script executable ---
-FANPKG=package/custom/luci-app-tr3600-fan
 for f in "$FANPKG/root/usr/sbin/tr3600-fan" "$FANPKG/root/etc/init.d/tr3600-fan" "$FANPKG/root/etc/uci-defaults/99-tr3600-fan"; do
 	if [ -f "$f" ]; then
 		chmod 0755 "$f"

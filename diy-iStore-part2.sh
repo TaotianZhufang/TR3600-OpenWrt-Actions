@@ -19,7 +19,19 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+# Locate the build-kit repo root. In GitHub Actions the workflow copies this
+# script into the openwrt/ checkout and runs it from there, so the repo root
+# is one level up. When run straight from the repo root (local testing) it is
+# SCRIPT_DIR itself. Prefer whichever one actually contains patches/.
+if [ -d "$SCRIPT_DIR/patches" ]; then
+	REPO_ROOT="$SCRIPT_DIR"
+elif [ -d "$SCRIPT_DIR/../patches" ]; then
+	REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+else
+	REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+	echo "[tr3600-fix] WARNING: no patches/ directory found near $SCRIPT_DIR"
+fi
 PATCHDIR="$REPO_ROOT/patches"
 
 echo "========================================================"

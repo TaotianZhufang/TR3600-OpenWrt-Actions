@@ -1,0 +1,182 @@
+#!/bin/sh
+
+PATH=/usr/sbin:/usr/bin:/sbin:/bin
+CONFIG=tr3600-fan.main
+
+fan_cdev() {
+	for c in /sys/class/thermal/cooling_device*; do
+		[ -r "$c/type" ] || continue
+		case "$(cat "$c/type" 2>/dev/null)" in
+		pwm-fan|pwm_fan|fan)
+			echo "$c"
+			return 0
+			;;
+		esac
+	done
+	return 1
+}
+
+thermal_zone() {
+	for z in /sys/class/thermal/thermal_zone*; do
+		[ -r "$z/type" ] || continue
+		case "$(cat "$z/type" 2>/dev/null)" in
+		*cpu*|*CPU*|soc_thermal)
+			echo "$z"
+			return 0
+			;;
+		esac
+	done
+
+	[ -r /sys/class/thermal/thermal_zone0/temp ] && {
+		echo /sys/class/thermal/thermal_zone0
+		return 0
+	}
+	return 1
+}
+
+fan_state_file() {
+	local fan
+	fan="$(fan_cdev)"
+	[ -n "$fan" ] && [ -w "$fan/cur_state" ] && echo "$fan/cur_state"
+}
+
+policy_file() {
+	local zone
+	zone="$(thermal_zone)"
+	[ -n "$zone" ] && [ -w "$zone/policy" ] && echo "$zone/policy"
+}
+
+set_policy() {
+	local file="$1"
+	local policy="$2"
+
+	[ -n "$file" ] || return 1
+	[ -r "${file%/policy}/available_policies" ] || return 1
+	grep -qw "$policy" "${file%/policy}/available_policies" || return 1
+	echo "$policy" > "$file"
+}
+
+set_state() {
+	local state="$1"
+	local file max
+
+	file="$(fan_state_file)"
+	[ -n "$file" ] || return 1
+	max="$(cat "${file%/cur_state}/max_state" 2>/dev/null)"
+	case "$state" in
+	0|1|2|3) ;;
+	*) state=0 ;;
+	esac
+
+	[ -n "$max" ] && [ "$state" -gt "$max" ] 2>/dev/null && state="$max"
+	echo "$state" > "$file"
+}
+
+config_mode() {
+	uci -q get "$CONFIG.mode" 2>/dev/null || echo auto
+}
+
+config_level() {
+	uci -q get "$CONFIG.level" 2>/dev/null || echo 2
+}
+
+set_auto() {
+	uci set "$CONFIG.mode=auto"
+	uci commit tr3600-fan
+	set_policy "$(policy_file)" step_wise || true
+}
+
+set_manual() {
+	local level="$1"
+
+	case "$level" in
+	0|1|2|3) ;;
+	*) echo "invalid level" >&2; return 1 ;;
+	esac
+
+	uci set "$CONFIG.mode=manual"
+	uci set "$CONFIG.level=$level"
+	uci commit tr3600-fan
+	set_policy "$(policy_file)" user_space || true
+	set_state "$level"
+}
+
+status() {
+	local fan zone mode level max temp policy
+
+	fan="$(fan_cdev)"
+	zone="$(thermal_zone)"
+	mode="$(config_mode)"
+	level=0
+	max=0
+	temp=0
+	policy=unknown
+
+	if [ -n "$fan" ]; then
+		level="$(cat "$fan/cur_state" 2>/dev/null)"
+		max="$(cat "$fan/max_state" 2>/dev/null)"
+	fi
+	if [ -n "$zone" ]; then
+		temp="$(cat "$zone/temp" 2>/dev/null)"
+		policy="$(cat "$zone/policy" 2>/dev/null)"
+	fi
+
+	case "$temp" in
+	''|*[!0-9]*) temp=0 ;;
+	esac
+
+	printf 'available=%s\n' "${fan:+1}"
+	printf 'mode=%s\n' "$mode"
+	printf 'level=%s\n' "$level"
+	printf 'max_level=%s\n' "${max:-0}"
+	printf 'temp=%s\n' "$temp"
+	printf 'policy=%s\n' "$policy"
+}
+
+daemon_loop() {
+	local mode level temp
+
+	while :; do
+		mode="$(config_mode)"
+		if [ "$mode" = manual ]; then
+			temp="$(status | sed -n 's/^temp=//p')"
+			case "$temp" in
+			''|*[!0-9]*) temp=0 ;;
+			esac
+
+			if [ "$temp" -ge 110000 ] 2>/dev/null; then
+				logger -t tr3600-fan "temperature ${temp}mC, restoring automatic thermal control"
+				set_auto
+				set_state 3
+			else
+				set_policy "$(policy_file)" user_space || true
+				level="$(config_level)"
+				[ "$temp" -ge 100000 ] 2>/dev/null && level=3
+				set_state "$level"
+			fi
+		else
+			set_policy "$(policy_file)" step_wise || true
+		fi
+		sleep 10
+	done
+}
+
+case "$1" in
+get)
+	status
+	;;
+set)
+	case "$2" in
+	auto) set_auto ;;
+	manual) set_manual "$3" ;;
+	*) echo "usage: $0 set {auto|manual LEVEL}" >&2; exit 1 ;;
+	esac
+	;;
+daemon)
+	daemon_loop
+	;;
+*)
+	echo "usage: $0 {get|set auto|set manual LEVEL|daemon}" >&2
+	exit 1
+	;;
+esac

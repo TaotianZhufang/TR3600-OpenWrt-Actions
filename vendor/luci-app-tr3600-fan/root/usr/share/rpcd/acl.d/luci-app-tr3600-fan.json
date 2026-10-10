@@ -1,0 +1,17 @@
+{
+	"luci-app-tr3600-fan": {
+		"description": "Grant access to TR3600 fan control",
+		"read": {
+			"file": {
+				"/usr/sbin/tr3600-fan": [ "exec" ]
+			},
+			"uci": [ "tr3600-fan" ]
+		},
+		"write": {
+			"file": {
+				"/usr/sbin/tr3600-fan": [ "exec" ]
+			},
+			"uci": [ "tr3600-fan" ]
+		}
+	}
+}

@@ -28,26 +28,52 @@ OpenWrt 固件，**一次修好風扇 / LED / WiFi MAC / 無線 STA_REC 四個�
 `diy-iStore-part1.sh` 另外把 `luci-app-tr3600-fan` 的腳本 `chmod 0755`
 （上游 git 樹全是 100644，上機後 0644 → `exec_direct` EACCES → LuCI 空狀態）。
 
+## 風扇插件已內建（不依賴第三方倉庫）
+
+原版是 `git clone https://github.com/liangcanming/luci-app-tr3600-fan.git`，
+但 **2026-10 該帳號名下倉庫全部 404**（連 Actions 外殼倉庫 `Cudy-tr3600-v1-6.12`
+也一起消失），build #1 因此死在：
+
+```
+fatal: could not read Username for 'https://github.com': No such device or address
+```
+
+所以整個套件改為**內建在本倉庫** `vendor/luci-app-tr3600-fan/`，
+內容與 `MichaelJiangg/luci-app-tr3600-fan`（`tr3600-v1-fanfix-v2` 的作者，
+也就是 patch 0003 撰寫時所依據的上游）**逐位元組相同**，
+已用 SHA256 對 `TR3600-build-kit/reference/` 快照驗證：
+
+```
+tr3600-fan.js  ff39ef3e6175e161974bb97553ca20df0ce7b9c57937225fdb7a140fb488b43b
+```
+
+`diy-iStore-part1.sh` 直接 `cp -a vendor/luci-app-tr3600-fan → package/custom/`；
+只有 `vendor/` 不存在時才回退去 clone GitHub。**第三方倉庫再消失也不影響編譯。**
+
 ## 目錄結構
 
 ```
 .
 ├── .github/workflows/build-openwrt-iStore-Amin.yml   # 唯一的 workflow
-├── diy-iStore-part1.sh      # feeds 之前：clone 插件源 + chmod + patch 0003
+├── diy-iStore-part1.sh      # feeds 之前：裝插件源 + chmod + patch 0003
 ├── diy-iStore-part2.sh      # feeds 之後：套用 0001/0004/0005/0006 + 0002
 ├── diy-partX.sh             # 關掉 Ruby YJIT，避免 Rust 長編譯
 ├── mt7987-cudy-tr3600-iStore.config                  # OpenWrt 設定檔
-└── patches/
-    ├── 0001-tr3600-fan-pwm0.patch
-    ├── 0002-mt76-mt7996-sta-rec-before-vow.patch
-    ├── 0003-luci-tr3600-fan-keep-pending-input.patch
-    ├── 0004-tr3600-led-colours.patch
-    ├── 0005-tr3600-wifi-mac-layout.patch
-    └── 0006-tr3600-fan-thermal-curve.patch
+├── patches/
+│   ├── 0001-tr3600-fan-pwm0.patch
+│   ├── 0002-mt76-mt7996-sta-rec-before-vow.patch
+│   ├── 0003-luci-tr3600-fan-keep-pending-input.patch
+│   ├── 0004-tr3600-led-colours.patch
+│   ├── 0005-tr3600-wifi-mac-layout.patch
+│   └── 0006-tr3600-fan-thermal-curve.patch
+└── vendor/
+    └── luci-app-tr3600-fan/  # 內建的風扇插件（10 個檔案）
 ```
 
-`patches/` **必須在倉庫根目錄**：`diy-iStore-part2.sh` 用 `$(dirname $0)/../patches`
-定位它，放錯會直接 `ERROR: ... does not apply` 中止。
+`patches/` 和 `vendor/` **必須在倉庫根目錄**：`diy-iStore-part1.sh` /
+`diy-iStore-part2.sh` 會先看自己所在目錄有沒有 `patches/`（本機直接執行），
+沒有就往上一層找（Actions 會把腳本複製進 `openwrt/` 再跑），放錯會直接
+`ERROR: ... does not apply` 中止。
 
 ## 怎麼跑
 
@@ -96,4 +122,5 @@ ROUTER=192.168.6.1 ./scripts/tr3600-mtd-backup.sh
   <https://github.com/openwrt/openwrt/pull/24596>
 - mt76 修復 commit `da2c90d2`（2026-07-29, Felix Fietkau）
 - 分支來源：<https://github.com/soapmancn/openwrt/tree/agent/cudy-tr3600-v1-6.12>
-- 風扇插件：<https://github.com/liangcanming/luci-app-tr3600-fan>
+- 風扇插件（已內建於 `vendor/`）：<https://github.com/MichaelJiangg/luci-app-tr3600-fan>
+  （原出處 `liangcanming/luci-app-tr3600-fan` 已 404）

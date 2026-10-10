@@ -19,6 +19,10 @@ name: Build Cudy TR3600 OpenWrt iStore Amin
 #      若 backport 打不上去，會在編譯前就失敗，不會白等 2~3 小時。
 #   3. diy-iStore-part2.sh 內對 0001/0004/0005/0006 四個 DTS patch 也做了
 #      dry-run + 套用後複查，任何一個不生效就 exit 1（不產出壞 image）。
+#   4. 風扇插件 luci-app-tr3600-fan 已內建在 vendor/，不再 git clone 第三方
+#      倉庫（liangcanming 帳號 2026-10 全部 404，build #1 就是死在這裡）。
+#      diy-iStore-part1.sh 之後多一個守門步驟：確認套件存在且腳本是 0755，
+#      否則立刻失敗——這個 0644 問題正是本套件要修的原始症狀之一。
 # =============================================================================
 
 on:
@@ -117,6 +121,32 @@ jobs:
         else
           echo "⚠️ 跳过: $DIY_P1_SH (文件不存在)"
         fi
+
+        # ---- TR3600 build kit guard: 风扇插件必须就位且可执行 ----
+        # 这一步把「静默产出 0644 脚本 -> 上机后 exec_direct EACCES ->
+        # LuCI 显示未检测到风扇」这个原始症状，提前变成编译期的硬失败。
+        FANPKG=package/custom/luci-app-tr3600-fan
+        if [ ! -f "$FANPKG/Makefile" ]; then
+          echo "::error title=风扇插件缺失::$FANPKG/Makefile 不存在，diy-iStore-part1.sh 没装成功。"
+          ls -la package/custom 2>/dev/null || true
+          exit 1
+        fi
+        for f in "$FANPKG/root/usr/sbin/tr3600-fan" \
+                 "$FANPKG/root/etc/init.d/tr3600-fan" \
+                 "$FANPKG/root/etc/uci-defaults/99-tr3600-fan"; do
+          if [ ! -f "$f" ]; then
+            echo "::error title=风扇插件文件缺失::找不到 $f"; exit 1
+          fi
+          m=$(stat -c %a "$f")
+          echo "  $f  mode=$m"
+          if [ "$m" != "755" ]; then
+            echo "::error title=风扇脚本权限不对::$f 是 $m，应为 755（否则设备上 exec_direct 会 EACCES）"
+            exit 1
+          fi
+        done
+        grep -qF "if (!dirty) {" "$FANPKG/htdocs/luci-static/resources/view/tr3600-fan.js" \
+          || echo "::warning title=0003 未套用::LuCI 风扇页 dirty flag 补丁没生效（非致命）"
+        echo "✅ 风扇插件就位：$FANPKG（脚本 0755）"
 
     # =========================================================
     # 5. 更新 & 安装 Feeds
@@ -328,6 +358,16 @@ jobs:
           echo
           echo "=== tr3600-fan file modes in built rootfs ==="
           find openwrt/build_dir -path '*luci-app-tr3600-fan*' -name 'tr3600-fan' -exec ls -l {} \; 2>/dev/null || true
+          echo
+          echo "=== tr3600-fan package provenance (sha256 of the source tree used) ==="
+          find openwrt/package/custom/luci-app-tr3600-fan -type f \
+            -exec sha256sum {} \; 2>/dev/null | sort -k2 || true
+          echo
+          echo "=== tr3600-fan entry-point modes (must be 755) ==="
+          ls -l openwrt/package/custom/luci-app-tr3600-fan/root/usr/sbin/tr3600-fan \
+                openwrt/package/custom/luci-app-tr3600-fan/root/etc/init.d/tr3600-fan \
+                openwrt/package/custom/luci-app-tr3600-fan/root/etc/uci-defaults/99-tr3600-fan \
+            2>/dev/null || true
         } > build-evidence.txt 2>&1
         cat build-evidence.txt
 

@@ -1,0 +1,41 @@
+msgid ""
+msgstr "Content-Type: text/plain; charset=UTF-8\n"
+
+msgid "TR3600 Fan Control"
+msgstr "TR3600 风扇控制"
+
+msgid "Automatic thermal control"
+msgstr "自动温控"
+
+msgid "Manual speed"
+msgstr "手动转速"
+
+msgid "Fan speed"
+msgstr "风扇转速"
+
+msgid "CPU temperature"
+msgstr "CPU 温度"
+
+msgid "Thermal policy"
+msgstr "温控策略"
+
+msgid "Fan setting applied."
+msgstr "风扇设置已应用。"
+
+msgid "Off"
+msgstr "关闭"
+
+msgid "Low (about 50%)"
+msgstr "低速（约 50%）"
+
+msgid "Medium (about 75%)"
+msgstr "中速（约 75%）"
+
+msgid "High (100%)"
+msgstr "高速（100%）"
+
+msgid "Manual mode uses the kernel user-space thermal policy. At 100 °C the fan is forced to full speed; at 110 °C automatic thermal control is restored."
+msgstr "手动模式使用内核 user-space 温控策略。达到 100 °C 时强制全速，达到 110 °C 时恢复自动温控。"
+
+msgid "The PWM fan cooling device was not detected."
+msgstr "未检测到 PWM 风扇冷却设备。"
