@@ -7,8 +7,7 @@ OpenWrt 固件，**一次修好風扇 / LED / WiFi MAC / 無線 STA_REC 四個�
 
 | 項目 | 值 |
 |---|---|
-| 原始碼 | `soapmancn/openwrt` |
-| 分支 | `agent/cudy-tr3600-v1-6.12` |
+| 原始碼 | `openwrt-25.12` + Cudy TR3600 v1 板级支援（自建編譯分支） |
 | 建置時 HEAD | `046aec0dccd9`（2026-08-11，「mediatek: add support for Cudy TR3600 v1」） |
 | 基底版本 | `openwrt-25.12` + TR3600 v1 裝置支援（上游 PR #24596，尚未合併） |
 
@@ -121,6 +120,5 @@ ROUTER=192.168.6.1 ./scripts/tr3600-mtd-backup.sh
 - 上游 PR #24596（TR3600 支援，base `openwrt-25.12`，**未合併**）：
   <https://github.com/openwrt/openwrt/pull/24596>
 - mt76 修復 commit `da2c90d2`（2026-07-29, Felix Fietkau）
-- 分支來源：<https://github.com/soapmancn/openwrt/tree/agent/cudy-tr3600-v1-6.12>
 - 風扇插件（已內建於 `vendor/`）：<https://github.com/MichaelJiangg/luci-app-tr3600-fan>
   （原出處 `liangcanming/luci-app-tr3600-fan` 已 404）
