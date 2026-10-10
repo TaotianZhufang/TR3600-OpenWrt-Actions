@@ -356,11 +356,26 @@ jobs:
           echo "=== mt76 PKG_SOURCE_VERSION ==="
           sed -n 's/^PKG_SOURCE_VERSION:=//p' openwrt/package/kernel/mt76/Makefile
           echo
-          echo "=== patched mt7996_mcu_add_sta tail ==="
+          echo "=== patched mt7996_mcu_add_sta tail (STA_REC must precede VoW) ==="
+          # 注意：不能用 awk '/^out:/{p=1}'，那會抓到檔案裡「第一個」out: 標籤
+          # （mt7996_debugfs_rx_log 之類），不是 add_sta 的。必須先把函式體框出來。
           MCU=openwrt/build_dir/target-*/linux-*/mt76-*/mt7996/mcu.c
           for f in $MCU; do
             [ -f "$f" ] || continue
-            awk '/^out:/{p=1} p{print} /^}/{if(p)exit}' "$f" | head -30
+            echo "  -- $f"
+            awk '
+              /^(static[ \t]+)?(int|void)[ \t]+.*mt7996_mcu_add_sta\(/ { infn = 1; n = 0 }
+              infn { buf[++n] = $0 }
+              infn && /^}/ { for (i = 1; i <= n; i++) print buf[i]; exit }
+            ' "$f" | tail -28
+            S=$(awk '/^(static[ \t]+)?(int|void)[ \t]+.*mt7996_mcu_add_sta\(/{infn=1} infn&&/STA_REC_UPDATE/{print NR; exit}' "$f")
+            G=$(awk '/^(static[ \t]+)?(int|void)[ \t]+.*mt7996_mcu_add_sta\(/{infn=1} infn&&/mt7996_mcu_add_group\(/{print NR; exit}' "$f")
+            if [ -n "$S" ] && [ -n "$G" ] && [ "$S" -lt "$G" ]; then
+              echo "  [OK] STA_REC_UPDATE (line $S) is sent before mt7996_mcu_add_group (line $G)"
+            else
+              echo "  [FAIL] wrong ordering: STA_REC_UPDATE=${S:-none} mt7996_mcu_add_group=${G:-none}"
+              exit 1
+            fi
           done
           echo
           echo "=== tr3600-fan file modes in built rootfs ==="
