@@ -1,0 +1,74 @@
+luci-app-tr3600-fan: do not let the 5 s poll clobber pending input
+
+The view refreshes the fan status every 5 seconds and fed the result
+straight back into the form controls:
+
+	poll.add(function() { return self.load().then(update); }, 5);
+
+update() unconditionally wrote mode.value / level.value from the device
+state, so a user who had moved the fan-speed slider but not yet pressed
+Apply saw the slider snap back to the current device value on the next
+poll tick (within 5 seconds).
+
+Fix: track whether the form has unapplied user changes and skip the
+control write-back while that flag is set. The read-only fields
+(temperature, thermal policy, availability) and the control
+enable/disable state keep refreshing as before.
+
+Cosmetic only - no functional or safety impact.
+
+Signed-off-by: TR3600 build kit <noreply@example.com>
+---
+--- a/htdocs/luci-static/resources/view/tr3600-fan.js
++++ b/htdocs/luci-static/resources/view/tr3600-fan.js
+@@ -54,6 +54,7 @@
+ 				const args = mode.value === 'manual' ?
+ 					[ 'set', 'manual', level.value ] : [ 'set', 'auto' ];
+ 				exec(args).then(function() {
++					dirty = false;
+ 					ui.addNotification(null, E('p', _('Fan setting applied.')));
+ 					return self.load();
+ 				}).then(update).catch(function(err) {
+@@ -64,6 +65,8 @@
+ 			}
+ 		}, _('Apply'));
+ 
++		let dirty = false;
++
+ 		function levelLabel(value) {
+ 			return [
+ 				_('Off'), _('Low (about 50%)'), _('Medium (about 75%)'), _('High (100%)')
+@@ -74,10 +77,18 @@
+ 			const available = status.available === '1';
+ 			const max = Math.max(0, Number(status.max_level || 3));
+ 			const current = Math.min(max, Math.max(0, Number(status.level || 0)));
+-			mode.value = status.mode === 'manual' ? 'manual' : 'auto';
++
+ 			level.max = String(max);
+-			level.value = String(current);
+-			levelText.textContent = levelLabel(current);
++
++			/*
++			 * The 5 s poll must not clobber a selection the user has made but
++			 * not applied yet, otherwise the slider snaps back mid-drag.
++			 */
++			if (!dirty) {
++				mode.value = status.mode === 'manual' ? 'manual' : 'auto';
++				level.value = String(current);
++				levelText.textContent = levelLabel(current);
++			}
+ 			level.disabled = !available || mode.value !== 'manual';
+ 			apply.disabled = !available;
+ 			temperature.textContent = temperatureText(status.temp);
+@@ -88,9 +99,11 @@
+ 		}
+ 
+ 		mode.addEventListener('change', function() {
++			dirty = true;
+ 			level.disabled = mode.value !== 'manual';
+ 		});
+ 		level.addEventListener('input', function() {
++			dirty = true;
+ 			levelText.textContent = levelLabel(level.value);
+ 		});
+ 

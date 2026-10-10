@@ -1,0 +1,43 @@
+Cudy TR3600 v1: use the vendor Wi-Fi MAC address layout
+
+The board DTS derived the radio addresses as base + 3 (2.4 GHz) and
+base + 2 (5 GHz).  The vendor layout, verified on a production unit, is:
+
+  LAN / gmac1 : base + 0
+  WAN / gmac0 : base + 1
+  2.4 GHz     : base + 0   (shares the LAN address)
+  5 GHz       : base + 0x10
+
+The base address is the only MAC stored in the bdinfo partition (at
+0xde00, followed by 0xff), so the offsets must reproduce the vendor
+assignment rather than be chosen merely to be unique.
+
+Reported-by: Ylarod <https://github.com/openwrt/openwrt/pull/24596>
+
+Signed-off-by: TR3600 build kit <noreply@example.com>
+---
+--- a/target/linux/mediatek/dts/mt7987b-cudy-tr3600-v1.dts
++++ b/target/linux/mediatek/dts/mt7987b-cudy-tr3600-v1.dts
+@@ -143,16 +143,19 @@
+ 			nvmem-cells = <&eeprom_factory_0>;
+ 			nvmem-cell-names = "eeprom";
+ 
+-			/* Offset 3 keeps the 2.4 GHz MAC distinct from LAN. */
++			/*
++			 * Vendor layout, verified on a production unit: the 2.4 GHz
++			 * radio shares the LAN/base address and 5 GHz is base + 0x10.
++			 */
+ 			band@0 {
+ 				reg = <0>;
+-				nvmem-cells = <&macaddr_bdinfo_de00 3>;
++				nvmem-cells = <&macaddr_bdinfo_de00 0>;
+ 				nvmem-cell-names = "mac-address";
+ 			};
+ 
+ 			band@1 {
+ 				reg = <1>;
+-				nvmem-cells = <&macaddr_bdinfo_de00 2>;
++				nvmem-cells = <&macaddr_bdinfo_de00 16>;
+ 				nvmem-cell-names = "mac-address";
+ 			};
+ 		};

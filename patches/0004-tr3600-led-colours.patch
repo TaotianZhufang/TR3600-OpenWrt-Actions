@@ -1,0 +1,50 @@
+Cudy TR3600 v1: fix the status LED colours
+
+The board DTS declares GPIO48 as blue and GPIO46 as white.  On a
+production unit GPIO48 is the white LED and GPIO46 is the red LED; there
+is no blue LED on this board at all.
+
+The Cudy development archive (TR3600v1_dts/R126.dts) also names GPIO46 as
+red, so the white description contradicts the vendor source.  LED roles
+are kept as-is: running uses GPIO48, boot/failsafe/upgrade use GPIO46.
+
+Reported-by: Ylarod <https://github.com/openwrt/openwrt/pull/24596>
+
+Signed-off-by: TR3600 build kit <noreply@example.com>
+---
+--- a/target/linux/mediatek/dts/mt7987b-cudy-tr3600-v1.dts
++++ b/target/linux/mediatek/dts/mt7987b-cudy-tr3600-v1.dts
+@@ -13,10 +13,10 @@
+ 
+ 	aliases {
+ 		label-mac-device = &gmac1;
+-		led-boot = &led_status_white;
+-		led-failsafe = &led_status_blue;
+-		led-running = &led_status_blue;
+-		led-upgrade = &led_status_blue;
++		led-boot = &led_status_red;
++		led-failsafe = &led_status_red;
++		led-running = &led_status_white;
++		led-upgrade = &led_status_red;
+ 		serial0 = &uart0;
+ 	};
+ 
+@@ -34,14 +34,14 @@
+ 	gpio-leds {
+ 		compatible = "gpio-leds";
+ 
+-		led_status_blue: led-0 {
+-			color = <LED_COLOR_ID_BLUE>;
++		led_status_white: led-0 {
++			color = <LED_COLOR_ID_WHITE>;
+ 			function = LED_FUNCTION_STATUS;
+ 			gpios = <&pio 48 GPIO_ACTIVE_LOW>;
+ 		};
+ 
+-		led_status_white: led-1 {
+-			color = <LED_COLOR_ID_WHITE>;
++		led_status_red: led-1 {
++			color = <LED_COLOR_ID_RED>;
+ 			function = LED_FUNCTION_STATUS;
+ 			gpios = <&pio 46 GPIO_ACTIVE_LOW>;
+ 		};

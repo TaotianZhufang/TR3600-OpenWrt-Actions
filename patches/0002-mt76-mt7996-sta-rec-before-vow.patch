@@ -1,0 +1,76 @@
+wifi: mt76: mt7996: send the STA_REC before the per-station VoW setup
+
+Backport of upstream openwrt/mt76 commit da2c90d2 ("wifi: mt76: mt7996:
+send the STA_REC before the per-station VoW setup") to the mt76 revision
+pinned by OpenWrt 25.12 (PKG_SOURCE_VERSION 39c960c3, 2026-03-19).
+
+The upstream commit was written against a later revision where
+mt7996_mcu_add_group() had been renamed to mt7996_mcu_sta_init_vow() and
+took &link->mt76 instead of link. At 39c960c3 the equivalent code is
+mt7996_mcu_add_group(), which sends UNI_VOW_DRR_CTRL through
+MCU_WM_UNI_CMD(VOW). The bug and the fix are identical.
+
+Problem: in mt7996_mcu_add_sta() the VoW/DRR group request was issued
+*before* the STA_REC_UPDATE, and a failure of that request caused the
+already-built STA_REC skb to be freed:
+
+	ret = mt7996_mcu_add_group(dev, link, wcid);
+	if (ret) {
+		dev_kfree_skb(skb);     <-- STA_REC never reaches firmware
+		return ret;
+	}
+out:
+	return mt76_mcu_skb_send_msg(&dev->mt76, skb,
+				     MCU_WMWA_UNI_CMD(STA_REC_UPDATE), true);
+
+The firmware rejects the per-station VoW request with status 0xc0000001
+("GetDisablePerStaTx Failed" in the firmware log) when it has no station
+record for that wcid yet. That happens for every new association after a
+full interface teardown/rebuild (e.g. `wifi down` + `wifi up`, or any
+netifd interface restart), because the teardown wipes the firmware STA
+context. The result is that the STA_REC update is never sent, so clients
+can never associate again - and `wifi reload` cannot recover it, only a
+reboot can.
+
+Fix: send the STA_REC update first, and only then program the VoW/DRR
+group. A failing VoW no longer discards the STA_REC skb, and is ignored
+(returning an error here would make mac80211 tear the station down again
+even though it is already registered in firmware).
+
+Tested on Cudy TR3600 v1 (MT7987 + MT7996): after the change, `wifi
+down; wifi up` no longer breaks client association, and the firmware log
+no longer shows the failed per-STA TX setup.
+
+Signed-off-by: TR3600 build kit <noreply@example.com>
+---
+--- a/mt7996/mcu.c
++++ b/mt7996/mcu.c
+@@ -2718,14 +2718,21 @@
+ 		}
+ 	}
+ 
+-	ret = mt7996_mcu_add_group(dev, link, wcid);
+-	if (ret) {
+-		dev_kfree_skb(skb);
+-		return ret;
+-	}
+ out:
+-	return mt76_mcu_skb_send_msg(&dev->mt76, skb,
+-				     MCU_WMWA_UNI_CMD(STA_REC_UPDATE), true);
++	ret = mt76_mcu_skb_send_msg(&dev->mt76, skb,
++				    MCU_WMWA_UNI_CMD(STA_REC_UPDATE), true);
++	if (ret || conn_state == CONN_STATE_DISCONNECT)
++		return ret;
++
++	/*
++	 * The firmware rejects the per-station VoW/DRR request for a wcid it
++	 * has no station record for yet (seen right after a wifi down/up
++	 * cycle). Sending the STA_REC update first guarantees the station is
++	 * registered, and a failing VoW no longer discards the STA_REC skb.
++	 */
++	mt7996_mcu_add_group(dev, link, wcid);
++
++	return 0;
+ }
+ 
+ int mt7996_mcu_teardown_mld_sta(struct mt7996_dev *dev,

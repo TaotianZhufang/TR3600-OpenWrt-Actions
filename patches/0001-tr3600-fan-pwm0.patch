@@ -1,0 +1,38 @@
+Cudy TR3600 v1: fix the PWM fan channel (1 -> 0)
+
+The board DTS wired the pwm-fan to PWM channel 1 and used the pwm1_pins
+pinctrl group. On real hardware the fan is driven by PWM0 (PIN13), which
+is the pwm_pins group already defined in mt7987.dtsi.
+
+Symptom with the wrong channel: the kernel pwm-fan driver binds but the
+hwmon cooling device never appears (no PWM output at all), and the
+thermal governor cannot control the fan. LuCI reports
+"The PWM fan cooling device was not detected." and the fan either stays
+off or, depending on the boot state, spins uncontrolled.
+
+Verified on device: after this change /sys/kernel/debug/pwm shows
+"pwm-0 (pwm-fan): requested enabled period: 50000 ns duty: ..." and the
+pwm-fan cooling device is registered (max_state=3).
+
+Signed-off-by: TR3600 build kit <noreply@example.com>
+---
+--- a/target/linux/mediatek/dts/mt7987b-cudy-tr3600-v1.dts
++++ b/target/linux/mediatek/dts/mt7987b-cudy-tr3600-v1.dts
+@@ -82,7 +82,7 @@
+ 
+ &fan {
+ 	fan-supply = <&fan_3p3v>;
+-	pwms = <&pwm 1 50000 0>;
++	pwms = <&pwm 0 50000 0>;
+ 	status = "okay";
+ };
+ 
+@@ -170,7 +170,7 @@
+ 
+ &pwm {
+ 	pinctrl-names = "default";
+-	pinctrl-0 = <&pwm1_pins>;
++	pinctrl-0 = <&pwm_pins>;
+ 	status = "okay";
+ };
+ 

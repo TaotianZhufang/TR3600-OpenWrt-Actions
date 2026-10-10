@@ -1,0 +1,67 @@
+Cudy TR3600 v1: stop the fan running at 50 % from 40 C upwards
+
+mt7987.dtsi maps the 40 C active-low trip to fan level 1, so the fan runs
+at 50 % whenever the SoC is above 40 C - which is always.  A unit sitting
+idle at 57 C therefore keeps the fan audible with nothing to do.
+
+The vendor DTS maps that same trip to fan level 0 (fan off) and only
+starts the fan at 85 C.  Keep the fan off while the SoC is cool, but use a
+gentler four-step ramp than the vendor table:
+
+  < 60 C : off
+  65 C   : level 1 (PWM 64,  25 %)
+  75 C   : level 2 (PWM 160, 63 %)
+  85 C   : level 3 (PWM 255, 100 %)
+
+cooling-levels stays at four states because the tr3600-fan daemon and its
+LuCI page only accept levels 0-3.
+
+Verified by compiling the DTS: active-low/med/high resolve to 65000/75000/
+85000 with 5000 hysteresis, the existing cooling-maps are kept and no
+duplicate trips are created.
+
+Signed-off-by: TR3600 build kit <noreply@example.com>
+---
+--- a/target/linux/mediatek/dts/mt7987b-cudy-tr3600-v1.dts
++++ b/target/linux/mediatek/dts/mt7987b-cudy-tr3600-v1.dts
+@@ -83,6 +83,7 @@
+ &fan {
+ 	fan-supply = <&fan_3p3v>;
+ 	pwms = <&pwm 0 50000 0>;
++	cooling-levels = <0 64 160 255>;
+ 	status = "okay";
+ };
+ 
+@@ -280,3 +281,32 @@
+ 	pinctrl-0 = <&uart0_pins>;
+ 	status = "okay";
+ };
++
++/*
++ * mt7987.dtsi maps the 40 C trip to fan level 1, which leaves the fan
++ * spinning at 50 % from 40 C upwards - clearly audible at idle (the unit
++ * sits around 57 C doing nothing).  Move the first step up to 65 C and use
++ * a gentler ramp.  The vendor DTS keeps the fan off below 85 C; 65 C keeps
++ * a usable margin without the constant noise.
++ *
++ * cooling-levels stays at four states (0..3) because the tr3600-fan daemon
++ * and its LuCI page only accept levels 0-3.
++ */
++&cpu_thermal {
++	trips {
++		cpu_trip_active_low: active-low {
++			temperature = <65000>;
++			hysteresis = <5000>;
++		};
++
++		cpu_trip_active_med: active-med {
++			temperature = <75000>;
++			hysteresis = <5000>;
++		};
++
++		cpu_trip_active_high: active-high {
++			temperature = <85000>;
++			hysteresis = <5000>;
++		};
++	};
++};
