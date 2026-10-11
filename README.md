@@ -44,38 +44,6 @@
     └── luci-app-tr3600-fan/  # 內建的風扇插件（10 個檔案）
 ```
 
-`patches/` 和 `vendor/` **必須在倉庫根目錄**：`diy-iStore-part1.sh` /
-`diy-iStore-part2.sh` 會先看自己所在目錄有沒有 `patches/`（本機直接執行），
-沒有就往上一層找（Actions 會把腳本複製進 `openwrt/` 再跑），放錯會直接
-`ERROR: ... does not apply` 中止。
-
-## 怎麼跑
-
-1. 進 **Actions** 分頁 → 左側 **Build Cudy TR3600 OpenWrt iStore Ajay**
-2. 右側 **Run workflow** → branch 選 `main` → **Run workflow**
-3. 等 **90–180 分鐘**（第一次要建 toolchain，最慢）
-
-**兩個把關步驟**讓你在白等之前就知道有沒有問題：
-
-- **Verify mt76 backport applies**（下載完套件後、編譯前）
-  解開已下載的 mt76 原始碼、乾跑一次 patch；打不上去會**立刻失敗**。
-- **Dump build evidence**（編譯成功後）
-  把 DTS 的 pwm / LED / MAC / thermal 行、mt76 patch 清單、`PKG_SOURCE_VERSION`、
-  實際編出的 `mt7996_mcu_add_sta()` 尾段存成 artifact，方便事後查帳。
-
-`diy-iStore-part2.sh` 內部對 4 個 DTS patch 也做了 dry-run + 套用後複查，
-任何一個不生效就 `exit 1`——**寧可中止，也不產出壞 image**。
-
-## 拿固件
-
-編譯成功後兩處可取：
-
-- **Actions → 該次 run → Artifacts**：`Cudy-TR3600-iStore-Ajay-<時間>`
-- **Releases**：workflow 會自動建 Release（只保留最近 10 個）
-
-要的是 `*sysupgrade.bin`。Release 只發佈**白名單**（sysupgrade / initramfs /
-`*.manifest` / `sha256sums`）——`mediatek/filogic` 的 bin 目錄裡混著別顆晶片的
-`mt79xx-ram-*-bl2.bin`，那些刷了會直接變磚，不會被發佈。
 
 ## 刷機前必讀
 
@@ -101,5 +69,4 @@
 
 - 上游 PR #24596（TR3600 支援，base `openwrt-25.12`，**未合併**）：
   <https://github.com/openwrt/openwrt/pull/24596>
-- mt76 修復 commit `da2c90d2`（2026-07-29, Felix Fietkau）
-- 風扇插件（已內建於 `vendor/`）：<https://github.com/MichaelJiangg/luci-app-tr3600-fan>
+
