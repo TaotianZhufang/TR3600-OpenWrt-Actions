@@ -1,0 +1,93 @@
+Cudy TR3600 v1: make the fan curve actually cool (kill the dead 25 % step)
+
+0006 moved the trips to 65/75/85 C but also changed cooling-levels to
+<0 64 160 255>, which makes level 1 a 25 % PWM step (64/255).  Measured on
+the board with each level forced for 80 s (6 samples, fan in manual mode):
+
+  level 0 (off)     64.1 C
+  level 1 (25 %)    63.7 C   <- cannot cool at all
+  level 2 (63 %)    61.3 C
+  level 3 (100 %)   58.0 C
+
+A step that does not cool is worse than no step: the step_wise governor
+walks up to level 1 at 65 C, sees no temperature drop, and the SoC keeps
+climbing until the 75 C step.  Restore the upstream 50 % step and space the
+rest out:
+
+  cooling-levels = <0 128 200 255>   (off / 50 % / 78 % / 100 %)
+
+Second problem: this board idles at ~64 C with the fan stopped, which is
+almost exactly the 65 C trip 0006 introduced, so the fan sits right on the
+threshold and starts on any small load.  Move the whole ramp up so the
+board stays silent at idle and only spins up under real load:
+
+  < 63 C : off            (idle sits at ~64 C, fan stopped)
+  68 C   : level 1, PWM 128 (50 %)
+  78 C   : level 2, PWM 200 (78 %)
+  88 C   : level 3, PWM 255 (100 %)
+
+The hysteresis stays at 5 C, so the fan releases at 63 C.  The SoC has a
+125 C critical trip and the CPU-throttling trip is at 117 C, so the 88 C
+top step still leaves a 29 C margin - the unit is nowhere near thermal
+trouble, this is purely about noise at idle versus cooling under load.
+
+cooling-levels keeps four entries because the tr3600-fan daemon and its
+LuCI page only accept levels 0-3.
+
+Verified by compiling the patched DTS: the trips resolve to 68/78/88 C with
+5 C hysteresis, no duplicate trips are created, and cooling-levels has
+exactly four entries.
+
+Signed-off-by: TR3600 build kit <noreply@example.com>
+---
+--- a/target/linux/mediatek/dts/mt7987b-cudy-tr3600-v1.dts
++++ b/target/linux/mediatek/dts/mt7987b-cudy-tr3600-v1.dts
+@@ -83,7 +83,7 @@
+ &fan {
+ 	fan-supply = <&fan_3p3v>;
+ 	pwms = <&pwm 0 50000 0>;
+-	cooling-levels = <0 64 160 255>;
++	cooling-levels = <0 128 200 255>;
+ 	status = "okay";
+ };
+ 
+@@ -284,10 +284,14 @@
+ 
+ /*
+  * mt7987.dtsi maps the 40 C trip to fan level 1, which leaves the fan
+- * spinning at 50 % from 40 C upwards - clearly audible at idle (the unit
+- * sits around 57 C doing nothing).  Move the first step up to 65 C and use
+- * a gentler ramp.  The vendor DTS keeps the fan off below 85 C; 65 C keeps
+- * a usable margin without the constant noise.
++ * spinning at 50 % from 40 C upwards - clearly audible at idle.  This board
++ * idles at ~64 C with the fan stopped, so the whole ramp is moved up: the
++ * fan stays off at idle and only spins up under real load.
++ *
++ *   < 63 C : off            (idle sits at ~64 C, fan stopped)
++ *   68 C   : level 1, PWM 128 (50 %)
++ *   78 C   : level 2, PWM 200 (78 %)
++ *   88 C   : level 3, PWM 255 (100 %)
+  *
+  * cooling-levels stays at four states (0..3) because the tr3600-fan daemon
+  * and its LuCI page only accept levels 0-3.
+@@ -295,17 +299,17 @@
+ &cpu_thermal {
+ 	trips {
+ 		cpu_trip_active_low: active-low {
+-			temperature = <65000>;
++			temperature = <68000>;
+ 			hysteresis = <5000>;
+ 		};
+ 
+ 		cpu_trip_active_med: active-med {
+-			temperature = <75000>;
++			temperature = <78000>;
+ 			hysteresis = <5000>;
+ 		};
+ 
+ 		cpu_trip_active_high: active-high {
+-			temperature = <85000>;
++			temperature = <88000>;
+ 			hysteresis = <5000>;
+ 		};
+ 	};
