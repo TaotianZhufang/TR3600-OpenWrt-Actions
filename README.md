@@ -1,19 +1,13 @@
-# Cudy TR3600 v1 — OpenWrt 自建「穩固版」固件（GitHub Actions）
+# Cudy TR3600 v1 — OpenWrt 自建固件（GitHub Actions）
 
-在 GitHub Actions 上免費編譯一版 Cudy TR3600 v1（MT7987B + MT7990，Wi-Fi 7）的
-OpenWrt 固件，**一次修好風扇 / LED / WiFi MAC / 無線 STA_REC 四個問題**。
+在 GitHub Actions 上免費編譯 Cudy TR3600 v1（MT7987B + MT7990，Wi-Fi 7）的 OpenWrt 固件，
+一次修好**風扇 / LED / WiFi MAC / 無線 STA_REC** 四個硬體描述問題。
 
-## 編譯基底
+- **建置 HEAD**：`046aec0dccd9`（2026-08-11，「mediatek: add support for Cudy TR3600 v1」），
+  即當前固件版本來源（`DISTRIB_REVISION = r0-046aec0`）
+- **基底**：`openwrt-25.12` + TR3600 v1 板級支援（上游 PR #24596，**尚未合併**）
 
-| 項目 | 值 |
-|---|---|
-| 原始碼 | `openwrt-25.12` + Cudy TR3600 v1 板级支援（自建編譯分支） |
-| 建置時 HEAD | `046aec0dccd9`（2026-08-11，「mediatek: add support for Cudy TR3600 v1」） |
-| 基底版本 | `openwrt-25.12` + TR3600 v1 裝置支援（上游 PR #24596，尚未合併） |
-
-> 這個分支就是你**現用固件**的來源（`DISTRIB_REVISION = r0-046aec0`）。
-
-## 這個版本修了什麼
+## 修了什麼
 
 | Patch | 症狀 | 修法 |
 |---|---|---|
@@ -27,27 +21,8 @@ OpenWrt 固件，**一次修好風扇 / LED / WiFi MAC / 無線 STA_REC 四個�
 `diy-iStore-part1.sh` 另外把 `luci-app-tr3600-fan` 的腳本 `chmod 0755`
 （上游 git 樹全是 100644，上機後 0644 → `exec_direct` EACCES → LuCI 空狀態）。
 
-## 風扇插件已內建（不依賴第三方倉庫）
-
-原版是 `git clone https://github.com/liangcanming/luci-app-tr3600-fan.git`，
-但 **2026-10 該帳號名下倉庫全部 404**（連 Actions 外殼倉庫 `Cudy-tr3600-v1-6.12`
-也一起消失），build #1 因此死在：
-
-```
-fatal: could not read Username for 'https://github.com': No such device or address
-```
-
-所以整個套件改為**內建在本倉庫** `vendor/luci-app-tr3600-fan/`，
-內容與 `MichaelJiangg/luci-app-tr3600-fan`（`tr3600-v1-fanfix-v2` 的作者，
-也就是 patch 0003 撰寫時所依據的上游）**逐位元組相同**，
-已用 SHA256 對 `TR3600-build-kit/reference/` 快照驗證：
-
-```
-tr3600-fan.js  ff39ef3e6175e161974bb97553ca20df0ce7b9c57937225fdb7a140fb488b43b
-```
-
-`diy-iStore-part1.sh` 直接 `cp -a vendor/luci-app-tr3600-fan → package/custom/`；
-只有 `vendor/` 不存在時才回退去 clone GitHub。**第三方倉庫再消失也不影響編譯。**
+風扇插件已內建在本倉庫 `vendor/luci-app-tr3600-fan/`，`diy-iStore-part1.sh` 以
+`cp -a` 安裝，**不依賴任何第三方倉庫**。
 
 ## 目錄結構
 
@@ -98,7 +73,9 @@ tr3600-fan.js  ff39ef3e6175e161974bb97553ca20df0ce7b9c57937225fdb7a140fb488b43b
 - **Actions → 該次 run → Artifacts**：`Cudy-TR3600-iStore-Ajay-<時間>`
 - **Releases**：workflow 會自動建 Release（只保留最近 10 個）
 
-要的是 `*sysupgrade.bin`。
+要的是 `*sysupgrade.bin`。Release 只發佈**白名單**（sysupgrade / initramfs /
+`*.manifest` / `sha256sums`）——`mediatek/filogic` 的 bin 目錄裡混著別顆晶片的
+`mt79xx-ram-*-bl2.bin`，那些刷了會直接變磚，不會被發佈。
 
 ## 刷機前必讀
 
@@ -106,11 +83,16 @@ tr3600-fan.js  ff39ef3e6175e161974bb97553ca20df0ce7b9c57937225fdb7a140fb488b43b
 > `cudy_tr3600`；`hanwckf/bl-mt798x` 只支援 MT7981/MT7986）。刷 U-Boot 會覆蓋
 > `mtd0 BL2` + `mtd4 FIP`，等於**拆掉現有的救援網**。
 
-刷機前先做**全分區備份**（唯讀、零風險，約 60 秒）：
+刷機前先做**全分區備份**（唯讀、零風險，約 60 秒）——逐個 `mtd` 分區 `dd` 出來即可：
 
-```bash
-ROUTER=192.168.6.1 ./scripts/tr3600-mtd-backup.sh
-```
+| 分區 | 內容 | 大小 |
+|---|---|---|
+| `mtd0` | BL2 | 1 MiB |
+| `mtd1` | backup | 512 KiB |
+| `mtd2` | Factory | 4 MiB |
+| `mtd3` | bdinfo | 256 KiB |
+| `mtd4` | FIP（ATF + U-Boot） | 2 MiB |
+| `mtd5` | ubi（系統，slot A/B） | 232 MiB |
 
 這台有 **A/B 雙開機槽** + `mtk-wdt` watchdog，sysupgrade 寫到另一個槽，
 新固件開不起來會**自動回退舊槽**，所以刷機風險低。
@@ -121,4 +103,3 @@ ROUTER=192.168.6.1 ./scripts/tr3600-mtd-backup.sh
   <https://github.com/openwrt/openwrt/pull/24596>
 - mt76 修復 commit `da2c90d2`（2026-07-29, Felix Fietkau）
 - 風扇插件（已內建於 `vendor/`）：<https://github.com/MichaelJiangg/luci-app-tr3600-fan>
-  （原出處 `liangcanming/luci-app-tr3600-fan` 已 404）

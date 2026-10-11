@@ -481,27 +481,11 @@ jobs:
         echo "firmware_no=${FIRMWARE_NO}" >> "$GITHUB_OUTPUT"
 
         cat <<EOF > release.txt
-        ## 🚀 ${{ env.DEVICE_MODEL }} iStore OpenWrt 固件 (Ajay 定制版 + TR3600 build kit)
+        ## Cudy TR3600 v1 — OpenWrt 固件（Ajay 定制版）
 
-        ### 📋 编译信息
-        | 项目 | 详情 |
-        |------|------|
-        | 📱 设备型号 | \`${{ env.DEVICE_MODEL }}\` |
-        | 🔢 **固件号** | **\`${FIRMWARE_NO}\`** |
-        | 🏷️ 固件标识 | ** iStore Ajay 定制版 + 風扇/LED/MAC/WiFi 修正** |
-        | 🧱 构建基底 | \`openwrt-25.12\` + Cudy TR3600 v1 板级支持 |
-        | ⏰ 编译时间 | $(date '+%Y-%m-%d %H:%M:%S') (Asia/Shanghai) |
-        | 🏷️ 版本标签 | \`${RELEASE_TAG}\` |
-        | 📄 配置文件 | \`${{ env.CONFIG_FILE }}\` |
-
-        ### 📝 备注
-        - 🔢 **固件号**：\`${FIRMWARE_NO}\`（构建号 r${{ github.run_number }}）
-        - 📦 **风扇插件**：已内建在仓库 \`vendor/luci-app-tr3600-fan\`，不依赖任何第三方仓库
-        - 🩹 **修正补丁**：6 个 —— 风扇 PWM 通道 / LED 颜色 / WiFi MAC 布局 / 温控曲线 /
-          mt76 STA_REC 顺序 / LuCI 风扇页 dirty flag
-        - 🧪 **上机自检**：\`scripts/tr3600-verify.sh\` 会核对以上每一项
-        - 🚫 **本版移除**：\`luci-app-lucky\`（套件不够完善，暂不编入）
-        - 👤 **定制**：Ajay
+        **固件号**：\`${FIRMWARE_NO}\` ｜ **编译时间**：$(date '+%Y-%m-%d %H:%M:%S') (Asia/Shanghai)
+        **构建基底**：\`openwrt-25.12\` + Cudy TR3600 v1 板级支持 ｜ **配置文件**：\`${{ env.CONFIG_FILE }}\`
+        **内含**：iStore 应用商店、OpenClash、Passwall / Passwall2、Argon 主题、LuCI 中文界面
 
         ### 🔧 本版修正
         - ✅ **風扇 PWM**：DTS 由 PWM 通道 1 → **通道 0**（\`pwms = <&pwm 0 50000 0>\`），
@@ -514,17 +498,10 @@ jobs:
         - ✅ **WiFi MAC**：2.4 GHz = **base+0x00**、5 GHz = **base+0x10**（與廠商一致）
         - ✅ **無線**：mt76 \`mt7996_mcu_add_sta()\` 改為先送 STA_REC、後送 VoW/DRR
           （修正 \`wifi down/up\` 後客戶端再也連不上的問題）
+        - ✅ **風扇插件已內建**於倉庫 \`vendor/luci-app-tr3600-fan\`，不依賴第三方倉庫；
+          本版移除 \`luci-app-lucky\`
 
-        ### 📦 包含插件
-        - ✅ **Passwall**
-        - ✅ **Passwall2**
-        - ✅ **OpenClash**
-        - ✅ **LuCI** 中文界面
-        - ✅ **USB+F50 等驱动**
-        - ✅ **Cudy TR3600风扇控制**
-        - ✅ **iStore 应用商店**
-
-        ### 🔧 刷机指南
+        ### 📥 刷機
 
         | 文件 | 用途 |
         |------|------|
@@ -534,8 +511,7 @@ jobs:
 
         1. 下载上面那个 \`…cudy_tr3600-v1-squashfs-sysupgrade.bin\`
         2. 通过 Cudy 过渡中间固件后 WEB 网页后台或 U-Boot 刷入
-        3. 默认 IP: \`192.168.6.1\`
-        4. 默认密码: \`password\`（空密码版本直接回车登录）
+        3. 默认 IP \`192.168.6.1\`、默认密码 \`password\`
 
         > ⚠️ **本 Release 只包含 TR3600 自己的两个映像 + manifest。**
         > 早期版本会误把 \`mt7981-ram-*-bl2.bin\`、\`mt7986-ram-*-bl2.bin\`、
@@ -543,13 +519,7 @@ jobs:
         > 那些是**别颗芯片**的 BL2 RAM loader，刷进 TR3600 会**直接变砖**。
         > 如果你在旧 Release 里看到它们，**绝对不要碰**。
 
-        ### ⚠️ 免责声明
-        - 刷机有风险，请谨慎操作
-        - 建议刷机前备份原厂固件
-        - 本固件仅供学习研究使用
-
-        ---
-        > 📌 **固件号**: \`${FIRMWARE_NO}\` | **固件标识**: iStore Ajay 定制版 + TR3600 build kit | 构建时间: $(date '+%Y-%m-%d %H:%M:%S')
+        > ⚠️ 刷机有风险，请谨慎操作；建议刷机前备份原厂固件。本固件仅供学习研究使用。
         EOF
 
         echo "status=success" >> "$GITHUB_OUTPUT"
