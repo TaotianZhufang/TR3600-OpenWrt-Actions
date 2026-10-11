@@ -1,6 +1,6 @@
 # Cudy TR3600 v1 — OpenWrt 自建固件（GitHub Actions）
 
-在 GitHub Actions 上免費編譯 Cudy TR3600 v1（MT7987B + MT7990，Wi-Fi 7）的 OpenWrt 固件，
+編譯 Cudy TR3600 v1（MT7987B + MT7990，Wi-Fi 7）的 OpenWrt 固件，
 一次修好**風扇 / LED / WiFi MAC / 無線 STA_REC** 四個硬體描述問題。
 
 - **建置 HEAD**：`046aec0dccd9`（2026-08-11，「mediatek: add support for Cudy TR3600 v1」），
