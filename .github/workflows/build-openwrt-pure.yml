@@ -1,9 +1,9 @@
-name: Build Cudy TR3600 OpenWrt Pure Ajay
+name: Build Cudy TR3600 OpenWrt Pure
 
 # =============================================================================
 # TR3600 build kit — 純淨基礎 + 性能優化版
 #
-# 與 Build Cudy TR3600 OpenWrt iStore Ajay 的差別：
+# 與 Build Cudy TR3600 OpenWrt iStore 的差別：
 #   只裝兩個外掛 —— iStore 應用商店、TR3600 智能風扇插件。
 #   沒有 Passwall / OpenClash / mosdns / smartdns / Argon 主題 / 工具類外掛。
 #   主題用 OpenWrt 原生 bootstrap。
@@ -52,7 +52,7 @@ on:
 env:
   DEVICE_NAME: Cudy-TR3600
   DEVICE_MODEL: Cudy TR3600
-  FIRMWARE_PREFIX: Cudy-TR3600-Pure-Ajay
+  FIRMWARE_PREFIX: Cudy-TR3600-Pure
   # 上游原始碼位置。編譯必需，但它是「實作細節」不是品牌：
   # 所有對外輸出（release tag / 標題 / 說明 / README）都不再引用這個名字。
   REPO_URL: https://github.com/soapmancn/openwrt
@@ -495,7 +495,7 @@ jobs:
       uses: actions/upload-artifact@v4
       if: steps.organize.outputs.status == 'success' && !cancelled()
       with:
-        name: ${{ env.DEVICE_NAME }}-Pure-Ajay-${{ env.BUILD_TIMESTAMP }}
+        name: ${{ env.DEVICE_NAME }}-Pure-${{ env.BUILD_TIMESTAMP }}
         # 只上傳白名單目錄，別顆晶片的 *-ram-*-bl2.bin 不會進 artifact
         path: ${{ env.FIRMWARE_RELEASE_DIR }}
 
@@ -509,18 +509,18 @@ jobs:
         BUILD_TIME="$BUILD_TIMESTAMP"
         DEVICE="$DEVICE_NAME"
 
-        # 對外標籤只留「設備 + 版本線 + 品牌 + 時間」，不帶上游作者與分支名。
-        RELEASE_TAG="${DEVICE}-Pure-Ajay-${BUILD_TIME}"
+        # 對外標籤只留「設備 + 版本線 + 時間」，不帶品牌、上游作者與分支名。
+        RELEASE_TAG="${DEVICE}-Pure-${BUILD_TIME}"
         RELEASE_TAG=$(echo "$RELEASE_TAG" | sed 's/[^a-zA-Z0-9._-]/-/g')
 
         # 固件号：人一眼能认出这一版是哪一个构建
-        FIRMWARE_NO="Ajay-Pure-${BUILD_TIME}-r${{ github.run_number }}"
+        FIRMWARE_NO="Pure-${BUILD_TIME}-r${{ github.run_number }}"
 
         echo "release_tag=${RELEASE_TAG}" >> "$GITHUB_OUTPUT"
         echo "firmware_no=${FIRMWARE_NO}" >> "$GITHUB_OUTPUT"
 
         cat <<EOF > release.txt
-        ## Cudy TR3600 v1 — OpenWrt 固件（Ajay 純淨性能版）
+        ## Cudy TR3600 v1 — OpenWrt 固件（純淨性能版）
 
         **固件号**：\`${FIRMWARE_NO}\` ｜ **编译时间**：$(date '+%Y-%m-%d %H:%M:%S') (Asia/Shanghai)
         **构建基底**：\`openwrt-25.12\` + Cudy TR3600 v1 板级支持 ｜ **配置文件**：\`${{ env.CONFIG_FILE }}\`
@@ -587,7 +587,7 @@ jobs:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
         tag_name: ${{ steps.tag.outputs.release_tag }}
-        name: ${{ env.DEVICE_MODEL }} OpenWrt Pure Ajay 純淨性能版 - ${{ env.BUILD_TIMESTAMP }}
+        name: ${{ env.DEVICE_MODEL }} OpenWrt Pure 純淨性能版 - ${{ env.BUILD_TIMESTAMP }}
         body_path: release.txt
         # 只發佈 Organize 步驟挑出來的白名單檔案。
         files: |
@@ -597,7 +597,9 @@ jobs:
 
     # =========================================================
     # 17. 清理旧的 Releases（保留最近 10 个）
-    #    注意 pattern 只匹配 Pure 線，不會動到 iStore 版的 Release
+    #    注意 pattern 只匹配 Pure 線，不會動到 iStore 版的 Release。
+    #    刻意「不寫結尾的連字號」：這樣連早期 ...-Pure-Ajay-* 的舊標籤也一併納入汰換，
+    #    否則品牌拿掉之後，那些舊標籤會永遠留在 Releases 頁面上沒人清。
     # =========================================================
     - name: Remove Old Releases
       uses: dev-drprasad/delete-older-releases@v0.3.4
@@ -605,6 +607,6 @@ jobs:
       with:
         keep_latest: 10
         delete_tags: true
-        delete_tag_pattern: '^${{ env.DEVICE_NAME }}-Pure-Ajay-'
+        delete_tag_pattern: '^${{ env.DEVICE_NAME }}-Pure'
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

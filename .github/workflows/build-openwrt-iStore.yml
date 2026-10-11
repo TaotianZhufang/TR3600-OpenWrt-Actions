@@ -1,4 +1,4 @@
-name: Build Cudy TR3600 OpenWrt iStore Ajay
+name: Build Cudy TR3600 OpenWrt iStore
 
 # =============================================================================
 # TR3600 build kit version
@@ -54,7 +54,7 @@ on:
 env:
   DEVICE_NAME: Cudy-TR3600
   DEVICE_MODEL: Cudy TR3600
-  FIRMWARE_PREFIX: Cudy-TR3600-Ajay
+  FIRMWARE_PREFIX: Cudy-TR3600-iStore
   # 上游原始碼位置。編譯必需，但它是「實作細節」不是品牌：
   # 所有對外輸出（release tag / 標題 / 說明 / README）都不再引用這個名字。
   REPO_URL: https://github.com/soapmancn/openwrt
@@ -478,7 +478,7 @@ jobs:
       uses: actions/upload-artifact@v4
       if: steps.organize.outputs.status == 'success' && !cancelled()
       with:
-        name: ${{ env.DEVICE_NAME }}-iStore-Ajay-${{ env.BUILD_TIMESTAMP }}
+        name: ${{ env.DEVICE_NAME }}-iStore-${{ env.BUILD_TIMESTAMP }}
         # 只上傳白名單目錄，別顆晶片的 *-ram-*-bl2.bin 不會進 artifact
         path: ${{ env.FIRMWARE_RELEASE_DIR }}
 
@@ -492,18 +492,18 @@ jobs:
         BUILD_TIME="$BUILD_TIMESTAMP"
         DEVICE="$DEVICE_NAME"
 
-        # 對外標籤只留「設備 + 品牌 + 時間」，不帶上游作者與分支名。
-        RELEASE_TAG="${DEVICE}-iStore-Ajay-${BUILD_TIME}"
+        # 對外標籤只留「設備 + 版本線 + 時間」，不帶品牌、上游作者與分支名。
+        RELEASE_TAG="${DEVICE}-iStore-${BUILD_TIME}"
         RELEASE_TAG=$(echo "$RELEASE_TAG" | sed 's/[^a-zA-Z0-9._-]/-/g')
 
         # 固件号：人一眼能认出这一版是哪一个构建
-        FIRMWARE_NO="Ajay-${BUILD_TIME}-r${{ github.run_number }}"
+        FIRMWARE_NO="iStore-${BUILD_TIME}-r${{ github.run_number }}"
 
         echo "release_tag=${RELEASE_TAG}" >> "$GITHUB_OUTPUT"
         echo "firmware_no=${FIRMWARE_NO}" >> "$GITHUB_OUTPUT"
 
         cat <<EOF > release.txt
-        ## Cudy TR3600 v1 — OpenWrt 固件（Ajay 定制版）
+        ## Cudy TR3600 v1 — OpenWrt 固件（iStore 定制版）
 
         **固件号**：\`${FIRMWARE_NO}\` ｜ **编译时间**：$(date '+%Y-%m-%d %H:%M:%S') (Asia/Shanghai)
         **构建基底**：\`openwrt-25.12\` + Cudy TR3600 v1 板级支持 ｜ **配置文件**：\`${{ env.CONFIG_FILE }}\`
@@ -556,7 +556,7 @@ jobs:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
         tag_name: ${{ steps.tag.outputs.release_tag }}
-        name: ${{ env.DEVICE_MODEL }} OpenWrt iStore Ajay 定制版 - ${{ env.BUILD_TIMESTAMP }}
+        name: ${{ env.DEVICE_MODEL }} OpenWrt iStore 定制版 - ${{ env.BUILD_TIMESTAMP }}
         body_path: release.txt
         # 只發佈 Organize 步驟挑出來的白名單檔案。
         # 原本寫 ${{ env.FIRMWARE_DIR }}/*.bin，會把 mediatek/filogic 目錄裡
@@ -569,6 +569,8 @@ jobs:
 
     # =========================================================
     # 17. 清理旧的 Releases（保留最近 10 个）
+    #    刻意「不寫結尾的連字號」：這樣連早期 ...-iStore-Ajay-* 的舊標籤也一併納入汰換，
+    #    否則品牌拿掉之後，那些舊標籤會永遠留在 Releases 頁面上沒人清。
     # =========================================================
     - name: Remove Old Releases
       uses: dev-drprasad/delete-older-releases@v0.3.4
@@ -576,6 +578,6 @@ jobs:
       with:
         keep_latest: 10
         delete_tags: true
-        delete_tag_pattern: '^${{ env.DEVICE_NAME }}-iStore-Ajay-'
+        delete_tag_pattern: '^${{ env.DEVICE_NAME }}-iStore'
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

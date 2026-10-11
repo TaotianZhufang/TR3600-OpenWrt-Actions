@@ -11,13 +11,13 @@
 
 | | **iStore 版** | **純淨性能版** |
 |---|---|---|
-| Workflow | `Build Cudy TR3600 OpenWrt iStore Ajay` | `Build Cudy TR3600 OpenWrt Pure Ajay` |
+| Workflow | `Build Cudy TR3600 OpenWrt iStore` | `Build Cudy TR3600 OpenWrt Pure` |
 | 設定檔 | `mt7987-cudy-tr3600-iStore.config` | `mt7987-cudy-tr3600-pure.config` |
 | DIY | `diy-iStore-part1/2.sh` | `diy-pure-part1/2.sh` |
 | 外掛 | iStore + 科學上網 / DNS / 工具類一大堆 | **只有 iStore + 智能風扇** |
 | 主題 | Argon | **OpenWrt 原生 bootstrap** |
 | Patch | 0001–0006 ＋ **0008** | 0001–**0008** |
-| Tag | `Cudy-TR3600-iStore-Ajay-<時間>` | `Cudy-TR3600-Pure-Ajay-<時間>` |
+| Tag | `Cudy-TR3600-iStore-<時間>` | `Cudy-TR3600-Pure-<時間>` |
 
 純淨版另外做**性能優化**：`fq` + **BBR**、TCP 緩衝 16 MB、**HWNAT 硬體流量卸載**
 （`flow_offloading` + `flow_offloading_hw`）、WED 無線卸載、zram。
@@ -48,8 +48,8 @@
 ```
 .
 ├── .github/workflows/
-│   ├── build-openwrt-iStore-Ajay.yml   # iStore 版
-│   └── build-openwrt-pure-Ajay.yml     # 純淨性能版
+│   ├── build-openwrt-iStore.yml        # iStore 版
+│   └── build-openwrt-pure.yml          # 純淨性能版
 ├── diy-iStore-part1.sh      # feeds 之前：裝插件源 + chmod + patch 0003 + 0008
 ├── diy-iStore-part2.sh      # feeds 之後：套用 0001/0004/0005/0006 + 0002
 ├── diy-pure-part1.sh        # 純淨版：只裝風扇插件 + istore feed + 0003 + 0008
