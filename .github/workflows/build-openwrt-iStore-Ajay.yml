@@ -11,6 +11,11 @@ name: Build Cudy TR3600 OpenWrt iStore Ajay
 #        patches/0004-tr3600-led-colours.patch       (LED: GPIO48 白 / GPIO46 紅)
 #        patches/0005-tr3600-wifi-mac-layout.patch   (WiFi MAC: 2.4G=base+0, 5G=base+0x10)
 #        patches/0006-tr3600-fan-thermal-curve.patch (溫控: 60C 以下停轉, 65/75/85 三段)
+#        patches/0008-luci-tr3600-fan-smart-suggestions.patch
+#                                                     (風扇頁智能季節建議: 待機基準→建議曲線、
+#                                                      季節覆寫、一鍵套用；三檔曲線
+#                                                      winter 68/78/88、mild 66/76/86、
+#                                                      summer 58/68/78)
 # 設定： mt7987-cudy-tr3600-iStore.config
 #
 # 與原版差異：
@@ -23,6 +28,9 @@ name: Build Cudy TR3600 OpenWrt iStore Ajay
 #      倉庫（liangcanming 帳號 2026-10 全部 404，build #1 就是死在這裡）。
 #      diy-iStore-part1.sh 之後多一個守門步驟：確認套件存在且腳本是 0755，
 #      否則立刻失敗——這個 0644 問題正是本套件要修的原始症狀之一。
+#      同時複查 0003（dirty flag）與 0008（智能季節建議）兩個 LuCI patch
+#      都套上了。**0003 必須先套、而且必須成功**：0008 的 hunk 用 0003 加
+#      進去的 dirty 旗標那幾行當 context，順序顛倒會留下 .rej 與半套的頁面。
 #   5. 移除 luci-app-lucky（套件不夠完善）：part1 不再 clone，
 #      config 也拿掉 CONFIG_PACKAGE_luci-app-lucky / luci-i18n-lucky-zh-cn。
 #   6. diy-iStore-part2.sh 的 argon 主題設定改成不致命：openwrt-25.12 的
@@ -158,6 +166,20 @@ jobs:
         done
         grep -qF "if (!dirty) {" "$FANPKG/htdocs/luci-static/resources/view/tr3600-fan.js" \
           || echo "::warning title=0003 未套用::LuCI 风扇页 dirty flag 补丁没生效（非致命）"
+
+        # ---- 0008：智能季节建议必须就位 ----
+        # diy-iStore-part1.sh 里打不上就会 exit 1，这里再独立复核一次：
+        # 只要有一处没套上，就说明编出来的固件缺了这次要做的功能。
+        grep -qF 'season_trips() {' "$FANPKG/root/usr/sbin/tr3600-fan" \
+          || { echo "::error title=0008 未套用::风扇 helper 里没有 season_trips()"; exit 1; }
+        grep -qF 'Smart suggestion' "$FANPKG/htdocs/luci-static/resources/view/tr3600-fan.js" \
+          || { echo "::error title=0008 未套用::LuCI 风扇页没有「智能建议」区块"; exit 1; }
+        grep -qF "option season 'auto'" "$FANPKG/root/etc/config/tr3600-fan" \
+          || { echo "::error title=0008 未套用::/etc/config/tr3600-fan 缺少 season 选项"; exit 1; }
+        grep -qF 'summer) echo "58000 68000 78000"' "$FANPKG/root/usr/sbin/tr3600-fan" \
+          || { echo "::error title=0008 曲线被改::三档季节曲线里的夏季档不见了"; exit 1; }
+        echo "✅ 智能季节建议已就位（season_trips / 智能建议区块 / season 选项）"
+
         echo "✅ 风扇插件就位：$FANPKG（脚本 0755）"
 
     # =========================================================

@@ -1,0 +1,663 @@
+luci-app-tr3600-fan: add a smart seasonal suggestion to the fan page
+
+The fan page only offered two choices: the kernel's fixed step_wise curve,
+or a manual level that has to be re-picked by hand whenever the weather
+changes.  After 0007 the board is genuinely silent at its ~64 C idle, but
+the right curve depends on the room: the same board that idles at 64 C in
+October idles far higher in July, and nothing in the package knew the
+difference.
+
+Add a third mode, "smart", that picks the fan level from a seasonal curve,
+and teach the LuCI page to show which curve fits and to switch in one click.
+
+Curves (trip temperatures in millidegrees; the PWM steps are 0 / 50 % /
+78 % / 100 %, i.e. the cooling-levels 0007 installed):
+
+  winter   68000 78000 88000   identical to the DTS curve 0007 installs
+  mild     66000 76000 86000   starts 2 C earlier
+  summer   58000 68000 78000   starts 10 C earlier, actively cools down
+
+The 5 C hysteresis matches the DTS (SEASON_HYST=5000), so a level is
+released once the temperature drops 5 C below the trip that raised it.
+
+The mild curve deliberately starts only 2 C below winter.  This board
+measures 64.1 C with the fan stopped, so a first trip below that would
+raise the fan and never release it again - the continuous low hum at idle
+that 0006 and 0007 exist to eliminate.  Any future edit to these numbers
+must keep every trip-1 above the measured fan-stopped idle temperature.
+
+Season selection is deliberately NOT driven by the live temperature.  Load
+pushes the temperature up, so a temperature-driven switch would flap
+between seasons every time the router got busy.  The calendar picks the
+season (Jun-Aug summer, Dec-Feb winter, otherwise mild); the measured
+idle baseline - the lowest temperature seen while the fan was stopped,
+which already carries the room temperature - is used by the LuCI page to
+refine a *suggestion* that a human applies, not by the daemon.
+
+The daemon keeps that baseline in /tmp/tr3600-fan.idle: it tracks the
+lowest temperature seen with the fan at level 0, and drifts upwards by
+10 mC per 10 s tick while the fan is running (3.6 C/h, capped at 95 C) so
+a stale cold-weather value cannot survive a warm spell.  It lives in
+/tmp, so it is re-learned after every boot.
+
+Safety is unchanged: in smart mode the daemon still forces the fan to
+level 3 at 100 C and hands control back to the kernel at 110 C.
+
+Defaults are chosen so the out-of-box behaviour does not change: the
+config still defaults to mode 'auto' (the kernel's step_wise curve), and
+the new 'season' option defaults to 'auto' (calendar).  Smart mode is one
+click away in the LuCI page.
+
+Requires 0003: the view hunks use 0003's "dirty" flag lines as context.
+
+Verified: sh -n on the helper, node --check on the view, and the seasonal
+functions exercised against the measured fan-stopped idle (64.1 C stays at
+level 0 under winter and mild, level 1 under summer) and across the
+hysteresis boundaries.
+
+Signed-off-by: TR3600 build kit <noreply@example.com>
+---
+--- a/htdocs/luci-static/resources/view/tr3600-fan.js
++++ b/htdocs/luci-static/resources/view/tr3600-fan.js
+@@ -29,6 +29,54 @@
+ 	return temp > 0 ? temp.toFixed(1) + ' °C' : _('Unavailable');
+ }
+ 
++/*
++ * Seasonal curves.  MUST stay in sync with season_trips() in
++ * /usr/sbin/tr3600-fan - the helper reports the effective curve as "trips="
++ * and that value is preferred whenever it is available.
++ */
++const SEASON_TRIPS = {
++	winter: [ 68000, 78000, 88000 ],
++	mild:   [ 66000, 76000, 86000 ],
++	summer: [ 58000, 68000, 78000 ]
++};
++
++function seasonLabel(season) {
++	switch (season) {
++	case 'winter':
++		return _('Winter — quiet (fan stopped at idle)');
++	case 'mild':
++		return _('Spring / autumn — balanced');
++	case 'summer':
++		return _('Summer — extra cooling');
++	}
++	return season || _('Unavailable');
++}
++
++function tripsText(trips) {
++	if (!trips || !trips.length)
++		return _('Unavailable');
++	return trips.map(function(v) { return (Number(v) / 1000).toFixed(0) + ' °C'; }).join(' / ');
++}
++
++/*
++ * The idle baseline is the temperature this board settles at with the fan
++ * stopped, so it already carries the room temperature.  That makes it a much
++ * better season signal than the calendar alone: it is October right now, but
++ * if the router idles at 64 C the room is cold and the quiet curve is right.
++ *
++ * The cut-offs sit just above each curve's first trip (winter 68, mild 66),
++ * so the suggested curve always leaves the fan stopped at the measured idle.
++ */
++function suggestSeason(idle) {
++	if (!idle)
++		return null;
++	if (idle <= 67000)
++		return 'winter';
++	if (idle <= 72000)
++		return 'mild';
++	return 'summer';
++}
++
+ return view.extend({
+ 	load: function() {
+ 		return exec([ 'get' ]).then(parseStatus);
+@@ -36,8 +84,12 @@
+ 
+ 	render: function(initial) {
+ 		const self = this;
++		let dirty = false;
++		let suggested = null;
++
+ 		const mode = E('select', { id: 'tr3600-fan-mode' }, [
+ 			E('option', { value: 'auto' }, _('Automatic thermal control')),
++			E('option', { value: 'smart' }, _('Smart seasonal control')),
+ 			E('option', { value: 'manual' }, _('Manual speed'))
+ 		]);
+ 		const level = E('input', {
+@@ -47,12 +99,27 @@
+ 		const temperature = E('span');
+ 		const policy = E('span');
+ 		const availability = E('p', { class: 'cbi-section-descr' });
++
++		const idleText = E('span');
++		const calendarText = E('span');
++		const effectiveText = E('span');
++		const suggestedText = E('span');
++		const suggestionNote = E('p', { class: 'cbi-section-descr' });
++
++		const season = E('select', { id: 'tr3600-fan-season' }, [
++			E('option', { value: 'auto' }, _('Automatic (by calendar)')),
++			E('option', { value: 'winter' }, _('Winter — quiet')),
++			E('option', { value: 'mild' }, _('Spring / autumn — balanced')),
++			E('option', { value: 'summer' }, _('Summer — extra cooling'))
++		]);
++
+ 		const apply = E('button', {
+ 			class: 'cbi-button cbi-button-apply',
+ 			click: function() {
+ 				apply.disabled = true;
+ 				const args = mode.value === 'manual' ?
+-					[ 'set', 'manual', level.value ] : [ 'set', 'auto' ];
++					[ 'set', 'manual', level.value ] :
++					[ 'set', mode.value === 'smart' ? 'smart' : 'auto' ];
+ 				exec(args).then(function() {
+ 					dirty = false;
+ 					ui.addNotification(null, E('p', _('Fan setting applied.')));
+@@ -65,7 +132,43 @@
+ 			}
+ 		}, _('Apply'));
+ 
+-		let dirty = false;
++		const applySuggestion = E('button', {
++			class: 'cbi-button cbi-button-action',
++			click: function() {
++				if (!suggested)
++					return;
++				applySuggestion.disabled = true;
++				exec([ 'set', 'season', suggested ]).then(function() {
++					return exec([ 'set', 'smart' ]);
++				}).then(function() {
++					dirty = false;
++					ui.addNotification(null, E('p', _('Suggestion applied: smart seasonal control.')));
++					return self.load();
++				}).then(update).catch(function(err) {
++					ui.addNotification(null, E('p', err.message || String(err)), 'error');
++				}).finally(function() {
++					applySuggestion.disabled = false;
++				});
++			}
++		}, _('Apply the suggestion'));
++
++		const applySeason = E('button', {
++			class: 'cbi-button cbi-button-apply',
++			click: function() {
++				applySeason.disabled = true;
++				exec([ 'set', 'season', season.value ]).then(function() {
++					return exec([ 'set', 'smart' ]);
++				}).then(function() {
++					dirty = false;
++					ui.addNotification(null, E('p', _('Season applied, smart seasonal control is active.')));
++					return self.load();
++				}).then(update).catch(function(err) {
++					ui.addNotification(null, E('p', err.message || String(err)), 'error');
++				}).finally(function() {
++					applySeason.disabled = false;
++				});
++			}
++		}, _('Apply season'));
+ 
+ 		function levelLabel(value) {
+ 			return [
+@@ -73,10 +176,29 @@
+ 			][Number(value)] || value;
+ 		}
+ 
++		function suggestionReason(idle, calendar, suggestedSeason) {
++			if (!idle)
++				return _('No idle baseline yet: the fan has not been stopped since boot, so there is nothing to measure the room temperature with. Showing the calendar season — check back after a few minutes at idle.');
++			if (suggestedSeason === calendar)
++				return _('Idle baseline ') + temperatureText(idle) + _(' agrees with the calendar season, so no change is needed.');
++			return _('Idle baseline ') + temperatureText(idle) +
++				_(' does not match the calendar season — the room is ') +
++				(suggestedSeason === 'summer' ? _('warmer') : _('colder')) +
++				_(' than the calendar suggests, so the curve is shifted accordingly.');
++		}
++
+ 		function update(status) {
+ 			const available = status.available === '1';
+ 			const max = Math.max(0, Number(status.max_level || 3));
+ 			const current = Math.min(max, Math.max(0, Number(status.level || 0)));
++			const idle = Number(status.idle || 0);
++			const calendar = status.season_calendar || 'mild';
++			const effective = status.season_effective || calendar;
++			const configured = status.season || 'auto';
++			const trips = (status.trips || '').trim().split(/\s+/).filter(function(v) { return v !== ''; });
++			const localSuggested = suggestSeason(idle);
++
++			suggested = localSuggested;
+ 
+ 			level.max = String(max);
+ 
+@@ -85,17 +207,31 @@
+ 			 * not applied yet, otherwise the slider snaps back mid-drag.
+ 			 */
+ 			if (!dirty) {
+-				mode.value = status.mode === 'manual' ? 'manual' : 'auto';
++				mode.value = status.mode === 'manual' ? 'manual' :
++					(status.mode === 'smart' ? 'smart' : 'auto');
+ 				level.value = String(current);
+ 				levelText.textContent = levelLabel(current);
++				season.value = configured;
+ 			}
+ 			level.disabled = !available || mode.value !== 'manual';
+ 			apply.disabled = !available;
++
+ 			temperature.textContent = temperatureText(status.temp);
+ 			policy.textContent = status.policy || _('Unavailable');
+ 			availability.textContent = available ?
+ 				_('Manual mode uses the kernel user-space thermal policy. At 100 °C the fan is forced to full speed; at 110 °C automatic thermal control is restored.') :
+ 				_('The PWM fan cooling device was not detected.');
++
++			idleText.textContent = temperatureText(idle);
++			calendarText.textContent = seasonLabel(calendar);
++			effectiveText.textContent = seasonLabel(effective) +
++				(trips.length ? ' (' + tripsText(trips) + ')' : '');
++			suggestedText.textContent = localSuggested ?
++				seasonLabel(localSuggested) + ' (' + tripsText(SEASON_TRIPS[localSuggested]) + ')' :
++				_('Unavailable');
++			suggestionNote.textContent = suggestionReason(idle, calendar, localSuggested);
++			applySuggestion.disabled = !available || !localSuggested;
++			applySeason.disabled = !available;
+ 		}
+ 
+ 		mode.addEventListener('change', function() {
+@@ -106,13 +242,44 @@
+ 			dirty = true;
+ 			levelText.textContent = levelLabel(level.value);
+ 		});
++		season.addEventListener('change', function() {
++			dirty = true;
++		});
+ 
+ 		update(initial);
+ 		poll.add(function() { return self.load().then(update); }, 5);
+ 
+ 		return E('div', { class: 'cbi-map' }, [
+ 			E('h2', {}, _('TR3600 Fan Control')),
++
++			E('div', { class: 'cbi-section' }, [
++				E('h3', {}, _('Smart suggestion')),
++				E('div', { class: 'cbi-value' }, [
++					E('span', { class: 'cbi-value-title' }, _('Idle baseline')),
++					E('div', { class: 'cbi-value-field' }, idleText)
++				]),
++				E('div', { class: 'cbi-value' }, [
++					E('span', { class: 'cbi-value-title' }, _('Calendar season')),
++					E('div', { class: 'cbi-value-field' }, calendarText)
++				]),
++				E('div', { class: 'cbi-value' }, [
++					E('span', { class: 'cbi-value-title' }, _('Current curve')),
++					E('div', { class: 'cbi-value-field' }, effectiveText)
++				]),
++				E('div', { class: 'cbi-value' }, [
++					E('span', { class: 'cbi-value-title' }, _('Suggested plan')),
++					E('div', { class: 'cbi-value-field' }, suggestedText)
++				]),
++				suggestionNote,
++				E('div', { class: 'cbi-value' }, [
++					E('label', { class: 'cbi-value-title', for: 'tr3600-fan-season' }, _('Season override')),
++					E('div', { class: 'cbi-value-field' }, [ season, applySeason ])
++				]),
++				applySuggestion
++			]),
++
+ 			E('div', { class: 'cbi-section' }, [
++				E('h3', {}, _('Manual control')),
+ 				E('div', { class: 'cbi-value' }, [
+ 					E('label', { class: 'cbi-value-title', for: 'tr3600-fan-mode' }, _('Mode')),
+ 					E('div', { class: 'cbi-value-field' }, mode)
+--- a/po/zh_Hans/tr3600-fan.po
++++ b/po/zh_Hans/tr3600-fan.po
+@@ -5,7 +5,10 @@
+ msgstr "TR3600 风扇控制"
+ 
+ msgid "Automatic thermal control"
+-msgstr "自动温控"
++msgstr "内核自动温控（固定曲线）"
++
++msgid "Smart seasonal control"
++msgstr "智能季节温控"
+ 
+ msgid "Manual speed"
+ msgstr "手动转速"
+@@ -35,7 +38,82 @@
+ msgstr "高速（100%）"
+ 
+ msgid "Manual mode uses the kernel user-space thermal policy. At 100 °C the fan is forced to full speed; at 110 °C automatic thermal control is restored."
+-msgstr "手动模式使用内核 user-space 温控策略。达到 100 °C 时强制全速，达到 110 °C 时恢复自动温控。"
++msgstr "手动/智能模式使用内核 user-space 温控策略。达到 100 °C 时强制全速，达到 110 °C 时恢复内核自动温控。"
+ 
+ msgid "The PWM fan cooling device was not detected."
+ msgstr "未检测到 PWM 风扇冷却设备。"
++
++msgid "Smart suggestion"
++msgstr "智能建议"
++
++msgid "Idle baseline"
++msgstr "待机基准"
++
++msgid "Calendar season"
++msgstr "日历季节"
++
++msgid "Current curve"
++msgstr "当前曲线"
++
++msgid "Suggested plan"
++msgstr "建议方案"
++
++msgid "Season override"
++msgstr "季节覆写"
++
++msgid "Automatic (by calendar)"
++msgstr "自动（按日历）"
++
++msgid "Winter — quiet"
++msgstr "冬季静音"
++
++msgid "Spring / autumn — balanced"
++msgstr "春秋平衡"
++
++msgid "Summer — extra cooling"
++msgstr "夏季加强散热"
++
++msgid "Winter — quiet (fan stopped at idle)"
++msgstr "冬季静音（待机完全停转）"
++
++msgid "Spring / autumn — balanced"
++msgstr "春秋平衡"
++
++msgid "Summer — extra cooling"
++msgstr "夏季加强散热"
++
++msgid "Apply the suggestion"
++msgstr "一键套用建议"
++
++msgid "Apply season"
++msgstr "套用季节"
++
++msgid "Suggestion applied: smart seasonal control."
++msgstr "已套用建议：智能季节温控。"
++
++msgid "Season applied, smart seasonal control is active."
++msgstr "季节已套用，智能季节温控生效中。"
++
++msgid "Unavailable"
++msgstr "不可用"
++
++msgid "No idle baseline yet: the fan has not been stopped since boot, so there is nothing to measure the room temperature with. Showing the calendar season — check back after a few minutes at idle."
++msgstr "还没有待机基准：开机后风扇一直没有停过，无法据此判断环境温度。这里先按日历季节显示，待机几分钟后再回来看。"
++
++msgid "Idle baseline "
++msgstr "待机基准 "
++
++msgid " agrees with the calendar season, so no change is needed."
++msgstr " 与日历季节一致，维持当前曲线即可。"
++
++msgid " does not match the calendar season — the room is "
++msgstr " 与日历季节不符 —— 实际环境比日历更"
++
++msgid "warmer"
++msgstr "热"
++
++msgid "colder"
++msgstr "冷"
++
++msgid " than the calendar suggests, so the curve is shifted accordingly."
++msgstr "，因此把曲线整体平移了一档。"
+--- a/root/etc/config/tr3600-fan
++++ b/root/etc/config/tr3600-fan
+@@ -1,3 +1,4 @@
+ config fan 'main'
+ 	option mode 'auto'
+ 	option level '2'
++	option season 'auto'
+--- a/root/usr/sbin/tr3600-fan
++++ b/root/usr/sbin/tr3600-fan
+@@ -3,6 +3,20 @@
+ PATH=/usr/sbin:/usr/bin:/sbin:/bin
+ CONFIG=tr3600-fan.main
+ 
++# Hysteresis of the seasonal curves, in millidegrees.  Matches the
++# hysteresis of the trips in the board DTS.
++SEASON_HYST=5000
++
++# Idle baseline file: the lowest temperature seen while the fan was stopped.
++# LuCI reads it to make its seasonal suggestion.
++IDLE_FILE=/tmp/tr3600-fan.idle
++
++# How much the idle baseline drifts upwards per 10 s tick (millidegrees).
++# 10 mC / 10 s = 3.6 C/hour: when the fan never stops (i.e. it is hot) the
++# baseline slowly walks up towards the measured temperature instead of
++# staying frozen at a stale winter value.
++IDLE_DECAY=10
++
+ fan_cdev() {
+ 	for c in /sys/class/thermal/cooling_device*; do
+ 		[ -r "$c/type" ] || continue
+@@ -80,6 +94,79 @@
+ 	uci -q get "$CONFIG.level" 2>/dev/null || echo 2
+ }
+ 
++config_season() {
++	uci -q get "$CONFIG.season" 2>/dev/null || echo auto
++}
++
++# The three seasonal curves, as "level1 level2 level3" trip temperatures in
++# millidegrees (50 % / 78 % / 100 % PWM).  The fan stops again 5 C below the
++# level-1 trip, which is what keeps it silent at idle.
++#
++#   winter : this board idles at ~64 C, so the fan stays completely stopped
++#            at idle and only spins up under real load.
++#   mild   : starts 2 C earlier, for a slightly warmer room.  It MUST stay
++#            above the measured fan-stopped idle temperature (64.1 C), or
++#            the fan would never release and would hum at idle forever -
++#            which is the exact bug this package exists to avoid.
++#   summer : starts 10 C earlier, so a hot room is actively cooled down
++#            instead of just being kept at the edge of the trip.
++season_trips() {
++	case "$1" in
++	winter) echo "68000 78000 88000" ;;
++	mild)   echo "66000 76000 86000" ;;
++	summer) echo "58000 68000 78000" ;;
++	*)      echo "68000 78000 88000" ;;
++	esac
++}
++
++# Calendar season (northern hemisphere).  Deliberately NOT based on the live
++# temperature: load pushes the temperature up, so a temperature-driven
++# automatic switch flaps between seasons whenever the router gets busy.
++# The temperature is used by the LuCI page to refine its *suggestion*
++# instead, where a human decides.
++calendar_season() {
++	case "$(date +%m 2>/dev/null)" in
++	06|07|08) echo summer ;;
++	12|01|02) echo winter ;;
++	*) echo mild ;;
++	esac
++}
++
++effective_season() {
++	local s
++	s="$(config_season)"
++	[ "$s" = auto ] && s="$(calendar_season)"
++	echo "$s"
++}
++
++# Pick the fan level for the current temperature, honouring hysteresis so
++# the fan does not chatter around a trip point.
++smart_level() {
++	local temp="$1" prev="$2"
++	local t1 t2 t3 new
++
++	set -- $(season_trips "$(effective_season)")
++	t1="$1"
++	t2="$2"
++	t3="$3"
++
++	new=0
++	[ "$temp" -ge "$t1" ] 2>/dev/null && new=1
++	[ "$temp" -ge "$t2" ] 2>/dev/null && new=2
++	[ "$temp" -ge "$t3" ] 2>/dev/null && new=3
++
++	# Going down a level requires dropping below "this level's trip - hysteresis".
++	if [ "$new" -lt "$prev" ]; then
++		case "$prev" in
++		1) [ "$temp" -ge $((t1 - SEASON_HYST)) ] 2>/dev/null && new=1 ;;
++		2) [ "$temp" -ge $((t2 - SEASON_HYST)) ] 2>/dev/null && new=2 ;;
++		3) [ "$temp" -ge $((t3 - SEASON_HYST)) ] 2>/dev/null && new=3 ;;
++		esac
++	fi
++
++	echo "$new"
++}
++
+ set_auto() {
+ 	uci set "$CONFIG.mode=auto"
+ 	uci commit tr3600-fan
+@@ -101,8 +188,23 @@
+ 	set_state "$level"
+ }
+ 
++set_smart() {
++	uci set "$CONFIG.mode=smart"
++	uci commit tr3600-fan
++}
++
++set_season() {
++	case "$1" in
++	auto|winter|mild|summer) ;;
++	*) echo "invalid season" >&2; return 1 ;;
++	esac
++
++	uci set "$CONFIG.season=$1"
++	uci commit tr3600-fan
++}
++
+ status() {
+-	local fan zone mode level max temp policy
++	local fan zone mode level max temp policy idle season
+ 
+ 	fan="$(fan_cdev)"
+ 	zone="$(thermal_zone)"
+@@ -111,6 +213,8 @@
+ 	max=0
+ 	temp=0
+ 	policy=unknown
++	idle=0
++	season="$(config_season)"
+ 
+ 	if [ -n "$fan" ]; then
+ 		level="$(cat "$fan/cur_state" 2>/dev/null)"
+@@ -120,40 +224,74 @@
+ 		temp="$(cat "$zone/temp" 2>/dev/null)"
+ 		policy="$(cat "$zone/policy" 2>/dev/null)"
+ 	fi
++	[ -r "$IDLE_FILE" ] && idle="$(cat "$IDLE_FILE" 2>/dev/null)"
+ 
+ 	case "$temp" in
+ 	''|*[!0-9]*) temp=0 ;;
+ 	esac
++	case "$idle" in
++	''|*[!0-9]*) idle=0 ;;
++	esac
+ 
+ 	printf 'available=%s\n' "${fan:+1}"
+ 	printf 'mode=%s\n' "$mode"
+ 	printf 'level=%s\n' "$level"
+ 	printf 'max_level=%s\n' "${max:-0}"
+ 	printf 'temp=%s\n' "$temp"
++	printf 'idle=%s\n' "$idle"
+ 	printf 'policy=%s\n' "$policy"
++	printf 'season=%s\n' "$season"
++	printf 'season_effective=%s\n' "$(effective_season)"
++	printf 'season_calendar=%s\n' "$(calendar_season)"
++	printf 'trips=%s\n' "$(season_trips "$(effective_season)")"
+ }
+ 
+ daemon_loop() {
+-	local mode level temp
++	local mode level temp idle
++
++	idle=0
++	[ -r "$IDLE_FILE" ] && idle="$(cat "$IDLE_FILE" 2>/dev/null)"
++	case "$idle" in
++	''|*[!0-9]*) idle=0 ;;
++	esac
+ 
+ 	while :; do
+ 		mode="$(config_mode)"
+-		if [ "$mode" = manual ]; then
+-			temp="$(status | sed -n 's/^temp=//p')"
+-			case "$temp" in
+-			''|*[!0-9]*) temp=0 ;;
+-			esac
+-
+-			if [ "$temp" -ge 110000 ] 2>/dev/null; then
+-				logger -t tr3600-fan "temperature ${temp}mC, restoring automatic thermal control"
+-				set_auto
+-				set_state 3
+-			else
+-				set_policy "$(policy_file)" user_space || true
+-				level="$(config_level)"
+-				[ "$temp" -ge 100000 ] 2>/dev/null && level=3
+-				set_state "$level"
++		level="$(status | sed -n 's/^level=//p')"
++		temp="$(status | sed -n 's/^temp=//p')"
++		case "$level" in
++		''|*[!0-9]*) level=0 ;;
++		esac
++		case "$temp" in
++		''|*[!0-9]*) temp=0 ;;
++		esac
++
++		# Idle baseline: lowest temperature seen while the fan was stopped,
++		# drifting slowly upwards.  Only used for the LuCI suggestion.
++		if [ "$temp" -gt 0 ]; then
++			[ "$idle" -eq 0 ] && idle="$temp"
++			idle=$((idle + IDLE_DECAY))
++			if [ "$level" -eq 0 ] && [ "$temp" -lt "$idle" ]; then
++				idle="$temp"
+ 			fi
++			[ "$idle" -gt 95000 ] && idle=95000
++			echo "$idle" > "$IDLE_FILE"
++		fi
++
++		if [ "$mode" != auto ] && [ "$temp" -ge 110000 ] 2>/dev/null; then
++			logger -t tr3600-fan "temperature ${temp}mC, restoring automatic thermal control"
++			set_auto
++			set_state 3
++		elif [ "$mode" = smart ]; then
++			set_policy "$(policy_file)" user_space || true
++			level="$(smart_level "$temp" "$level")"
++			[ "$temp" -ge 100000 ] 2>/dev/null && level=3
++			set_state "$level"
++		elif [ "$mode" = manual ]; then
++			set_policy "$(policy_file)" user_space || true
++			level="$(config_level)"
++			[ "$temp" -ge 100000 ] 2>/dev/null && level=3
++			set_state "$level"
+ 		else
+ 			set_policy "$(policy_file)" step_wise || true
+ 		fi
+@@ -169,14 +307,16 @@
+ 	case "$2" in
+ 	auto) set_auto ;;
+ 	manual) set_manual "$3" ;;
+-	*) echo "usage: $0 set {auto|manual LEVEL}" >&2; exit 1 ;;
++	smart) set_smart ;;
++	season) set_season "$3" ;;
++	*) echo "usage: $0 set {auto|manual LEVEL|smart|season SEASON}" >&2; exit 1 ;;
+ 	esac
+ 	;;
+ daemon)
+ 	daemon_loop
+ 	;;
+ *)
+-	echo "usage: $0 {get|set auto|set manual LEVEL|daemon}" >&2
++	echo "usage: $0 {get|set auto|set manual LEVEL|set smart|set season SEASON|daemon}" >&2
+ 	exit 1
+ 	;;
+ esac

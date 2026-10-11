@@ -76,20 +76,39 @@ done
 # Belt and braces: make sure a later re-checkout cannot silently drop the bit.
 chmod 0755 "$FANPKG/Makefile" 2>/dev/null || true
 
-# --- LuCI 風扇頁不得覆蓋使用者尚未送出的輸入 ---
-# 純外觀問題（5 秒輪詢會把滑桿彈回）。非致命：打不上去就繼續，
-# 編出來的固件只是滑桿會跳，功能不受影響。
-P3="$PATCHDIR/0003-luci-tr3600-fan-keep-pending-input.patch"
-if [ -f "$P3" ]; then
-	if ( cd "$FANPKG" && patch -p1 --dry-run --forward -s < "$P3" >/dev/null 2>&1 ); then
-		( cd "$FANPKG" && patch -p1 --forward -s < "$P3" )
-		echo "[tr3600-pure] applied 0003-luci-tr3600-fan-keep-pending-input.patch"
-	else
-		echo "[tr3600-pure] WARNING: 0003 LuCI patch does not apply, continuing without it"
+# --- LuCI 風扇頁補丁 ---
+#   0003：5 秒輪詢不得覆蓋使用者尚未送出的輸入（滑桿彈回）。
+#   0008：智能季節建議（待機基準 → 建議曲線、季節覆寫、一鍵套用）。
+#
+# 順序不能顛倒，而且 0003 必須成功：0008 的 JS hunk 以 0003 加進去的
+# `dirty` 旗標那幾行當 context。實測沒有 0003 就上 0008 → 7 個 hunk 有
+# 3 個 FAILED，留下 .rej 與半套的風扇頁。所以這裡兩個都改成硬失敗，
+# 不再「打不上去就繼續」——半套的風扇頁比編譯失敗難查得多。
+#
+# -F 0 / --no-backup-if-mismatch 不是裝飾：
+#   預設 fuzz=2，上游只要動到 hunk 邊界那幾行，patch 就會「模糊命中」
+#   照樣 rc=0 並留下 .orig —— 實測把 temperatureText() 那行改掉之後，
+#   0008 仍然 rc=0 硬塞進去。加 -F 0 之後同樣的漂移會 rc=1 直接失敗。
+apply_fan_patch() {
+	local p="$1" name="$2"
+	if [ ! -f "$p" ]; then
+		echo "ERROR: $p 不存在"
+		exit 1
 	fi
-else
-	echo "[tr3600-pure] WARNING: $P3 not found"
-fi
+	if ! ( cd "$FANPKG" && patch -p1 --dry-run --forward -s -F 0 --no-backup-if-mismatch < "$p" >/dev/null 2>&1 ); then
+		echo "ERROR: $name 打不上去（dry-run 失敗）。"
+		echo "       風扇套件是 vendor/luci-app-tr3600-fan 的副本，"
+		echo "       若上游內容被改動、或順序被顛倒就會這樣。"
+		exit 1
+	fi
+	( cd "$FANPKG" && patch -p1 --forward -s -F 0 --no-backup-if-mismatch < "$p" )
+	echo "[tr3600-pure] applied $name"
+}
+
+apply_fan_patch "$PATCHDIR/0003-luci-tr3600-fan-keep-pending-input.patch" \
+	0003-luci-tr3600-fan-keep-pending-input.patch
+apply_fan_patch "$PATCHDIR/0008-luci-tr3600-fan-smart-suggestions.patch" \
+	0008-luci-tr3600-fan-smart-suggestions.patch
 
 # =========================================================
 # iStore 應用商店 feed

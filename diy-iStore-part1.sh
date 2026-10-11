@@ -107,20 +107,42 @@ done
 # Belt and braces: make sure a later re-checkout cannot silently drop the bit.
 chmod 0755 "$FANPKG/Makefile" 2>/dev/null || true
 
-# --- TR3600 build kit fix: LuCI fan page must not clobber pending input ---
-# Cosmetic only (the 5 s poll used to snap the slider back). Non-fatal:
-# if it does not apply the build continues with an unpatched LuCI page.
-P3="$PATCHDIR/0003-luci-tr3600-fan-keep-pending-input.patch"
-if [ -f "$P3" ]; then
-	if ( cd "$FANPKG" && patch -p1 --dry-run --forward -s < "$P3" >/dev/null 2>&1 ); then
-		( cd "$FANPKG" && patch -p1 --forward -s < "$P3" )
-		echo "[tr3600-fix] applied 0003-luci-tr3600-fan-keep-pending-input.patch"
-	else
-		echo "[tr3600-fix] WARNING: 0003 LuCI patch does not apply, continuing without it"
+# --- TR3600 build kit fix: LuCI fan page patches ---
+#   0003: the 5 s poll must not clobber input the user has not applied yet.
+#   0008: smart seasonal suggestion (idle baseline -> suggested curve,
+#         season override, one-click apply).
+#
+# Order matters and 0003 must succeed: 0008's view hunks use the `dirty`
+# flag lines that 0003 introduces as context. Measured without 0003 first:
+# 3 of 7 hunks FAILED and a .rej was left behind, i.e. a half-patched page.
+# Both are therefore fatal now instead of "warn and continue".
+#
+# -F 0 / --no-backup-if-mismatch are not cosmetic: the default fuzz of 2
+# lets patch "fuzzily" match when upstream touches the lines at a hunk
+# boundary, still returning rc=0 and leaving a .orig behind. Measured:
+# after editing the temperatureText() line, 0008 still reported rc=0.
+# With -F 0 the same drift fails loudly with rc=1.
+apply_fan_patch() {
+	local p="$1" name="$2"
+	if [ ! -f "$p" ]; then
+		echo "ERROR: $p not found"
+		exit 1
 	fi
-else
-	echo "[tr3600-fix] WARNING: $P3 not found"
-fi
+	if ! ( cd "$FANPKG" && patch -p1 --dry-run --forward -s -F 0 --no-backup-if-mismatch < "$p" >/dev/null 2>&1 ); then
+		echo "ERROR: $name does not apply (dry-run failed)."
+		echo "       The package is a copy of vendor/luci-app-tr3600-fan;"
+		echo "       this happens if the upstream content changed or if the"
+		echo "       patch order was reversed."
+		exit 1
+	fi
+	( cd "$FANPKG" && patch -p1 --forward -s -F 0 --no-backup-if-mismatch < "$p" )
+	echo "[tr3600-fix] applied $name"
+}
+
+apply_fan_patch "$PATCHDIR/0003-luci-tr3600-fan-keep-pending-input.patch" \
+	0003-luci-tr3600-fan-keep-pending-input.patch
+apply_fan_patch "$PATCHDIR/0008-luci-tr3600-fan-smart-suggestions.patch" \
+	0008-luci-tr3600-fan-smart-suggestions.patch
 # -------------------------------------------------------------
 
 # 添加 istore feed 到 feeds.conf.default
