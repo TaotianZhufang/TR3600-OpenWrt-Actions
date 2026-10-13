@@ -159,7 +159,8 @@ jobs:
         # ---- TR3600 build kit guard: 风扇插件必须就位且可执行 ----
         # 这一步把「静默产出 0644 脚本 -> 上机后 exec_direct EACCES ->
         # LuCI 显示未检测到风扇」这个原始症状，提前变成编译期的硬失败。
-        FANPKG=package/custom/luci-app-tr3600-fan        if [ ! -f "$FANPKG/Makefile" ]; then
+        FANPKG=package/custom/luci-app-tr3600-fan
+        if [ ! -f "$FANPKG/Makefile" ]; then
           echo "::error title=风扇插件缺失::$FANPKG/Makefile 不存在，diy-pure-part1.sh 没装成功。"
           ls -la package/custom 2>/dev/null || true
           exit 1
