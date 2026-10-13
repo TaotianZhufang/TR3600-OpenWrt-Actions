@@ -1,12 +1,13 @@
 name: Build Cudy TR3600 OpenWrt Pure
 
 # =============================================================================
-# TR3600 build kit — OpenWrt 精簡 + 性能優化（目前唯一的建置線）
+# TR3600 build kit — OpenWrt 功能版 + 性能優化（目前唯一的建置線）
 #
 # 2026-10-13：iStore 應用商店已移除（連同 linkease/istore feed 與其依賴），
-#   iStore 版建置線整個退休。現在只裝一個外掛 —— TR3600 智能風扇插件。
-#   沒有 iStore / Passwall / OpenClash / mosdns / smartdns / Argon 主題 / 工具類外掛。
-#   主題用 OpenWrt 原生 bootstrap。
+#   iStore 版建置線整個退休。主題用 OpenWrt 原生 bootstrap。
+#   第一輪是「只裝智能風扇」的精簡版；同日晚間第二輪按使用者要求加回
+#   VPN / 組網 / 代理 / 下載 / 共享 / DDNS 一整組（見守門機制第 7、8 條）。
+#   仍然沒有：iStore / OpenClash / SSR+ / smartdns / 第三方主題 / 工具類外掛。
 #
 # 基底： openwrt-25.12 + Cudy TR3600 v1 板级支援（上游 PR #24596，尚未合併）
 #        實際 clone 來源見下面的 env.REPO_URL（編譯必需，非品牌標記）
@@ -748,19 +749,38 @@ jobs:
         echo "firmware_no=${FIRMWARE_NO}" >> "$GITHUB_OUTPUT"
 
         cat <<EOF > release.txt
-        ## Cudy TR3600 v1 — OpenWrt 固件（精簡 + 性能優化版）
+        ## Cudy TR3600 v1 — OpenWrt 固件（功能版 + 性能優化）
 
         **固件号**：\`${FIRMWARE_NO}\` ｜ **编译时间**：$(date '+%Y-%m-%d %H:%M:%S') (Asia/Shanghai)
         **构建基底**：\`openwrt-25.12\` + Cudy TR3600 v1 板级支持 ｜ **配置文件**：\`${{ env.CONFIG_FILE }}\`
-        **内含**：TR3600 智能風扇插件（OpenWrt 原生 bootstrap 主題、LuCI 中文界面）
+        **主題**：OpenWrt 原生 **bootstrap**（LuCI 中文界面）
 
-        ### 🪶 這一版是「OpenWrt 精簡 + 性能優化」
+        ### 📦 內含外掛
 
-        只裝**一個外掛：智能風扇**。沒有 iStore / Passwall / OpenClash / SSR+ /
-        mosdns / smartdns / Argon 主題 / 工具類外掛 —— 開機服務更少、記憶體更省、
-        攻擊面更小。要加外掛請自行用 \`apk\` 或 LuCI 的「軟體套件」頁安裝。
+        | 類別 | 套件 |
+        |------|------|
+        | 風扇 | **TR3600 智能風扇**（內建於 \`vendor/\`，不依賴第三方倉庫） |
+        | VPN / 組網 | ZeroTier、Tailscale、WireGuard、OpenVPN |
+        | 代理 | PassWall2（**只編 Xray 核心**）＋ dnsmasq-full |
+        | DNS | mosdns、DDNS（\`luci-app-ddns\`）、ddns-go |
+        | 下載 | aria2 |
+        | 共享 | Samba4、WebDAV |
+        | USB | 儲存（ext4 / exfat / ntfs3 + block-mount）、約 11 種網卡晶片、手機共享（RNDIS / NCM / EEM）、WWAN（QMI / MBIM）、4 種 USB 序列埠 |
+        | 無線 | \`wpad-mbedtls\`（含 **802.11r/k/v 快速漫遊** 與 WPS） |
+
+        > **刻意沒裝**：iStore 商店、OpenClash、SSR+、smartdns、第三方主題
+        > （Argon / Aurora / Kucat）、工具類外掛（ttyd / filemanager / authshield）。
+        > 要加請自行用 \`apk\` 或 LuCI 的「軟體套件」頁安裝。
+
+        > ⚠️ **ZeroTier 只有 CLI，沒有 LuCI 介面** —— 上游 \`luci-app-zerotier\`
+        > 已不存在（2026-10-13 實測）。請用 \`zerotier-cli\` 或 UCI 設定。
+        > 其餘外掛在 LuCI 裡都有頁面。
 
         ### ⚡ 性能優化
+
+        > 這些全部由 \`/etc/sysctl.d/99-tr3600-pure.conf\` 交付（**不是** \`/etc/sysctl.conf\`
+        > —— 那是 conffile，sysupgrade 會保留舊的、蓋掉新映像的設定）。
+
         - ✅ **BBR + fq**：\`net.ipv4.tcp_congestion_control=bbr\`、\`net.core.default_qdisc=fq\`
         - ✅ **TCP 緩衝區**：rmem/wmem 上限 16 MB（2.5G WAN 高頻寬下不卡吞吐）
         - ✅ **硬體流量卸載（HWNAT）**：\`flow_offloading\` + \`flow_offloading_hw\` 預設開啟，
@@ -815,7 +835,7 @@ jobs:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
         tag_name: ${{ steps.tag.outputs.release_tag }}
-        name: ${{ env.DEVICE_MODEL }} OpenWrt Pure 精簡性能版 - ${{ env.BUILD_TIMESTAMP }}
+        name: ${{ env.DEVICE_MODEL }} OpenWrt Pure 功能性能版 - ${{ env.BUILD_TIMESTAMP }}
         body_path: release.txt
         # 只發佈 Organize 步驟挑出來的白名單檔案。
         files: |

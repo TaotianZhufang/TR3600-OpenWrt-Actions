@@ -13,12 +13,12 @@
 連同 iStore 應用商店本身（`luci-app-store` + `linkease/istore` feed）一起移除，
 第三方主題（Argon / Aurora / Kucat）也一併清掉。
 
-| | **精簡性能版** |
+| | **功能性能版** |
 |---|---|
 | Workflow | `Build Cudy TR3600 OpenWrt Pure` |
 | 設定檔 | `mt7987-cudy-tr3600-pure.config` |
 | DIY | `diy-pure-part1/2.sh` |
-| 外掛 | **只有 TR3600 智能風扇**（LuCI 模組名就叫「智能風扇」，中英文模式一致） |
+| 外掛 | 智能風扇（LuCI 模組名就叫「智能風扇」，中英文模式一致）＋ **VPN / 組網 / 代理 / 下載 / 共享 / DDNS**（見下方「第二輪」那節） |
 | 主題 | **OpenWrt 原生 bootstrap** |
 | Patch | 0001–**0007**（0008 已下線） |
 | Tag | `Cudy-TR3600-Pure-<時間>` |
@@ -58,7 +58,7 @@ Release 保留最近 10 個。
 ```
 .
 ├── .github/workflows/
-│   └── build-openwrt-pure.yml          # 唯一的建置線（精簡性能版）
+│   └── build-openwrt-pure.yml          # 唯一的建置線（功能性能版）
 ├── diy-pure-part1.sh        # feeds 之前：裝風扇插件 + 0003 + 複製 files/ overlay
 ├── diy-pure-part2.sh        # feeds 之後：0001~0007 + 0002 + HWNAT（sysctl 已移出）
 ├── diy-partX.sh             # 關掉 Ruby YJIT，避免 Rust 長編譯
