@@ -7,21 +7,25 @@
   即當前固件版本來源（`DISTRIB_REVISION = r0-046aec0`）
 - **基底**：`openwrt-25.12` + TR3600 v1 板級支援（上游 PR #24596，**尚未合併**）
 
-## 兩條版本線
+## 版本線
 
-| | **iStore 版** | **純淨性能版** |
-|---|---|---|
-| Workflow | `Build Cudy TR3600 OpenWrt iStore` | `Build Cudy TR3600 OpenWrt Pure` |
-| 設定檔 | `mt7987-cudy-tr3600-iStore.config` | `mt7987-cudy-tr3600-pure.config` |
-| DIY | `diy-iStore-part1/2.sh` | `diy-pure-part1/2.sh` |
-| 外掛 | iStore + 科學上網 / DNS / 工具類一大堆 | **只有 iStore + 智能風扇** |
-| 主題 | Argon | **OpenWrt 原生 bootstrap** |
-| Patch | 0001–0006 ＋ **0008** | 0001–**0008** |
-| Tag | `Cudy-TR3600-iStore-<時間>` | `Cudy-TR3600-Pure-<時間>` |
+**2026-10-13 起只剩一條線。** iStore 版（`build-openwrt-iStore.yml`）已退休，
+連同 iStore 應用商店本身（`luci-app-store` + `linkease/istore` feed）一起移除，
+第三方主題（Argon / Aurora / Kucat）也一併清掉。
 
-純淨版另外做**性能優化**：`fq` + **BBR**、TCP 緩衝 16 MB、**HWNAT 硬體流量卸載**
+| | **精簡性能版** |
+|---|---|
+| Workflow | `Build Cudy TR3600 OpenWrt Pure` |
+| 設定檔 | `mt7987-cudy-tr3600-pure.config` |
+| DIY | `diy-pure-part1/2.sh` |
+| 外掛 | **只有 TR3600 智能風扇** |
+| 主題 | **OpenWrt 原生 bootstrap** |
+| Patch | 0001–**0008** |
+| Tag | `Cudy-TR3600-Pure-<時間>` |
+
+另外做**性能優化**：`fq` + **BBR**、TCP 緩衝 16 MB、**HWNAT 硬體流量卸載**
 （`flow_offloading` + `flow_offloading_hw`）、WED 無線卸載、zram。
-兩條線的 Release 互相獨立，各自保留最近 10 個。
+Release 保留最近 10 個。
 
 ## 修了什麼
 
@@ -33,14 +37,14 @@
 | `0004-tr3600-led-colours` | 狀態燈顏色與機身不符 | `led-0` = **白**@GPIO48、`led-1` = **紅**@GPIO46（上游誤標成 blue/white，**本板無藍燈**） |
 | `0005-tr3600-wifi-mac-layout` | 2.4G / 5G 的 MAC 位址對不上 | 2.4 GHz = **base+0**（與 LAN 相同）、5 GHz = **base+0x10** |
 | `0006-tr3600-fan-thermal-curve` | 待機時風扇持續低鳴 | 60 °C 以下**停轉**、65/75/85 °C 三段（上游 40 °C 就鎖 50 %） |
-| `0007-tr3600-fan-curve-tune` | 0006 的 65 °C 那段是 25 % PWM，**實測完全沒有降溫效果**；本板待機剛好 64 °C，卡在門檻上 | 改成 **50 / 78 / 100 %**，曲線整條上移到 **68 / 78 / 88 °C**——待機真的停轉，要降溫時每一段都有用（**只給純淨版**） |
+| `0007-tr3600-fan-curve-tune` | 0006 的 65 °C 那段是 25 % PWM，**實測完全沒有降溫效果**；本板待機剛好 64 °C，卡在門檻上 | 改成 **50 / 78 / 100 %**，曲線整條上移到 **68 / 78 / 88 °C**——待機真的停轉，要降溫時每一段都有用 |
 | `0008-luci-tr3600-fan-smart-suggestions` | 風扇頁只有「固定曲線」與「手動」兩檔，換季得自己記得改 | 加**智能季節建議**：三檔曲線（winter `68/78/88`、mild `66/76/86`、summer `58/68/78`），頁面顯示**待機基準**與**建議方案＋理由**，可一鍵套用或手動覆寫季節 |
 
-`diy-*-part1.sh` 另外把 `luci-app-tr3600-fan` 的腳本 `chmod 0755`
+`diy-pure-part1.sh` 另外把 `luci-app-tr3600-fan` 的腳本 `chmod 0755`
 （上游 git 樹全是 100644，上機後 0644 → `exec_direct` EACCES → LuCI 空狀態）。
 
-風扇插件已內建在本倉庫 `vendor/luci-app-tr3600-fan/`，兩個 `part1` 都以
-`cp -a` 安裝，**不依賴任何第三方倉庫**（純淨版連「找不到就 clone 上游」的回退都沒有，
+風扇插件已內建在本倉庫 `vendor/luci-app-tr3600-fan/`，`diy-pure-part1.sh` 以
+`cp -a` 安裝，**不依賴任何第三方倉庫**（連「找不到就 clone 上游」的回退都沒有，
 直接失敗——第三方倉庫已經消失過一次了）。
 
 ## 目錄結構
@@ -48,15 +52,11 @@
 ```
 .
 ├── .github/workflows/
-│   ├── build-openwrt-iStore.yml        # iStore 版
-│   └── build-openwrt-pure.yml          # 純淨性能版
-├── diy-iStore-part1.sh      # feeds 之前：裝插件源 + chmod + patch 0003 + 0008
-├── diy-iStore-part2.sh      # feeds 之後：套用 0001/0004/0005/0006 + 0002
-├── diy-pure-part1.sh        # 純淨版：只裝風扇插件 + istore feed + 0003 + 0008
-├── diy-pure-part2.sh        # 純淨版：0001~0007 + 0002 + 性能優化
+│   └── build-openwrt-pure.yml          # 唯一的建置線（精簡性能版）
+├── diy-pure-part1.sh        # feeds 之前：裝風扇插件 + 0003 + 0008
+├── diy-pure-part2.sh        # feeds 之後：0001~0007 + 0002 + 性能優化
 ├── diy-partX.sh             # 關掉 Ruby YJIT，避免 Rust 長編譯
-├── mt7987-cudy-tr3600-iStore.config                  # iStore 版設定檔
-├── mt7987-cudy-tr3600-pure.config                    # 純淨版設定檔
+├── mt7987-cudy-tr3600-pure.config                    # 設定檔
 ├── patches/
 │   ├── 0001-tr3600-fan-pwm0.patch
 │   ├── 0002-mt76-mt7996-sta-rec-before-vow.patch
@@ -76,7 +76,7 @@
 
 `0003` 與 `0008` 動同一個 LuCI 檔案，**0003 必須先套而且必須成功**：0008 的
 hunk 用 0003 加進去的 `dirty` 旗標那幾行當 context。實測顛倒順序 → 7 個 hunk 有 3 個
-FAILED，留下 `.rej` 與半套的風扇頁。所以兩個 `part1` 都改成**硬失敗**
+FAILED，留下 `.rej` 與半套的風扇頁。所以 `part1` 改成**硬失敗**
 （不再「打不上去就繼續」），並且加 `-F 0` 關掉 fuzz——預設 fuzz=2 會讓 patch 在
 上游漂移時「模糊命中」照樣回 rc=0。
 

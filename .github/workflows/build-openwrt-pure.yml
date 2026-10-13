@@ -1,11 +1,11 @@
 name: Build Cudy TR3600 OpenWrt Pure
 
 # =============================================================================
-# TR3600 build kit — 純淨基礎 + 性能優化版
+# TR3600 build kit — OpenWrt 精簡 + 性能優化（目前唯一的建置線）
 #
-# 與 Build Cudy TR3600 OpenWrt iStore 的差別：
-#   只裝兩個外掛 —— iStore 應用商店、TR3600 智能風扇插件。
-#   沒有 Passwall / OpenClash / mosdns / smartdns / Argon 主題 / 工具類外掛。
+# 2026-10-13：iStore 應用商店已移除（連同 linkease/istore feed 與其依賴），
+#   iStore 版建置線整個退休。現在只裝一個外掛 —— TR3600 智能風扇插件。
+#   沒有 iStore / Passwall / OpenClash / mosdns / smartdns / Argon 主題 / 工具類外掛。
 #   主題用 OpenWrt 原生 bootstrap。
 #
 # 基底： openwrt-25.12 + Cudy TR3600 v1 板级支援（上游 PR #24596，尚未合併）
@@ -25,13 +25,13 @@ name: Build Cudy TR3600 OpenWrt Pure
 # 設定： mt7987-cudy-tr3600-pure.config
 # 性能： sysctl fq + BBR、TCP 緩衝區加大、HWNAT 硬體流量卸載、WED 無線卸載
 #
-# 守門機制（沿用 iStore 版，一個都不少）：
+# 守門機制（一個都不少）：
 #   1. Clone 後印出實際 HEAD SHA 並與 REPO_COMMIT 比對（只警告、不中斷）。
 #   2. 「Download Packages」之後多一個 mt76 patch 預檢：backport 打不上去
 #      就在編譯前失敗，不會白等 2~3 小時。
 #   3. diy-pure-part2.sh 對 0001/0004/0005/0006/0007 五個 DTS patch 都做
 #      dry-run + 套用後複查，任何一個不生效就 exit 1。
-#   4. 風扇插件內建於 vendor/，不 clone 任何第三方倉庫（純淨版連回退 clone 都
+#   4. 風扇插件內建於 vendor/，不 clone 任何第三方倉庫（精簡版連回退 clone 都
 #      沒有：vendor/ 不見就直接失敗）。part1 之後會確認套件存在且腳本 0755，
 #      並複查 0003（dirty flag）與 0008（智能季節建議）兩個 LuCI patch 都套上了。
 #      **0003 必須先套、而且必須成功**：0008 的 hunk 用 0003 加進去的 dirty
@@ -232,7 +232,7 @@ jobs:
         echo "========================================"
         echo "📋 配置摘要:"
         grep "CONFIG_TARGET_DEVICE" .config || echo "⚠️ 未找到设备配置"
-        grep -E "CONFIG_DEFAULT_THEME|CONFIG_PACKAGE_luci-app-store|CONFIG_PACKAGE_luci-app-tr3600-fan" .config || true
+        grep -E "CONFIG_DEFAULT_THEME|CONFIG_PACKAGE_luci-app-tr3600-fan" .config || true
         echo "========================================"
 
     # =========================================================
@@ -243,14 +243,14 @@ jobs:
         cd openwrt
         make oldconfig
         echo "✅ oldconfig 生成完成"
-        # 校验两个插件仍然 =y
-        echo "==== iStore / fan config check ===="
-        grep -E "luci-app-store|luci-app-tr3600-fan|luci-theme-bootstrap|CONFIG_DEFAULT_THEME" .config
+        # 校验风扇插件仍然 =y
+        echo "==== fan config check ===="
+        grep -E "luci-app-tr3600-fan|luci-theme-bootstrap|CONFIG_DEFAULT_THEME" .config
         echo "============================"
-        # 纯净版：科学上网 / 主题类插件一个都不该出现
+        # 精简版：商店 / 科学上网 / 主题类插件一个都不该出现
         echo "==== 应为空（不该出现的插件）===="
-        grep -E "CONFIG_PACKAGE_(luci-app-passwall|luci-app-passwall2|luci-app-openclash|luci-app-ssr-plus|luci-theme-argon|luci-theme-aurora|luci-theme-kucat|luci-app-mosdns|luci-app-smartdns|luci-app-openlist|luci-app-ttyd|luci-app-filemanager|luci-app-authshield)=y" .config \
-          && { echo "::error title=纯净版混入插件::上面这些插件不该出现在纯淨版 config 里"; exit 1; } \
+        grep -E "CONFIG_PACKAGE_(luci-app-store|luci-app-passwall|luci-app-passwall2|luci-app-openclash|luci-app-ssr-plus|luci-theme-argon|luci-theme-aurora|luci-theme-kucat|luci-app-mosdns|luci-app-smartdns|luci-app-openlist|luci-app-ttyd|luci-app-filemanager|luci-app-authshield)=y" .config \
+          && { echo "::error title=精简版混入插件::上面这些插件不该出现在精简版 config 里"; exit 1; } \
           || echo "OK: 没有混入非预期插件"
         echo "========================================"
 
@@ -520,17 +520,17 @@ jobs:
         echo "firmware_no=${FIRMWARE_NO}" >> "$GITHUB_OUTPUT"
 
         cat <<EOF > release.txt
-        ## Cudy TR3600 v1 — OpenWrt 固件（純淨性能版）
+        ## Cudy TR3600 v1 — OpenWrt 固件（精簡 + 性能優化版）
 
         **固件号**：\`${FIRMWARE_NO}\` ｜ **编译时间**：$(date '+%Y-%m-%d %H:%M:%S') (Asia/Shanghai)
         **构建基底**：\`openwrt-25.12\` + Cudy TR3600 v1 板级支持 ｜ **配置文件**：\`${{ env.CONFIG_FILE }}\`
-        **内含**：iStore 应用商店、TR3600 智能風扇插件（OpenWrt 原生 bootstrap 主題、LuCI 中文界面）
+        **内含**：TR3600 智能風扇插件（OpenWrt 原生 bootstrap 主題、LuCI 中文界面）
 
-        ### 🪶 這一版是「純淨基礎 + 性能優化」
+        ### 🪶 這一版是「OpenWrt 精簡 + 性能優化」
 
-        只裝兩個外掛：**iStore** 與 **智能風扇**。沒有 Passwall / OpenClash / SSR+ /
+        只裝**一個外掛：智能風扇**。沒有 iStore / Passwall / OpenClash / SSR+ /
         mosdns / smartdns / Argon 主題 / 工具類外掛 —— 開機服務更少、記憶體更省、
-        攻擊面更小，其餘留給你用 iStore 按需安裝。
+        攻擊面更小。要加外掛請自行用 \`apk\` 或 LuCI 的「軟體套件」頁安裝。
 
         ### ⚡ 性能優化
         - ✅ **BBR + fq**：\`net.ipv4.tcp_congestion_control=bbr\`、\`net.core.default_qdisc=fq\`
@@ -540,7 +540,7 @@ jobs:
         - ✅ **WED 無線卸載**：\`CONFIG_WED_HW_RRO_SUPPORT=y\`
         - ✅ **zram**：壓縮記憶體當 swap，記憶體吃緊時不 OOM
 
-        ### 🔧 板級修正（與 iStore 版相同）
+        ### 🔧 板級修正
         - ✅ **風扇 PWM**：DTS 由 PWM 通道 1 → **通道 0**（\`pwms = <&pwm 0 50000 0>\`），
           \`pinctrl-0\` 改為 \`pwm_pins\`，風扇測得到、可調速
         - ✅ **風扇腳本權限**：\`/usr/sbin/tr3600-fan\`、\`/etc/init.d/tr3600-fan\` 由 0644 → 0755
@@ -564,7 +564,7 @@ jobs:
         1. 下载上面那个 \`…cudy_tr3600-v1-squashfs-sysupgrade.bin\`
         2. 通过 Cudy 过渡中间固件后 WEB 网页后台或 U-Boot 刷入
         3. 默认 IP \`192.168.6.1\`、默认密码 \`password\`
-        4. 刷完進 LuCI 會看到 **bootstrap** 主題（OpenWrt 原生）；要換主題從 iStore 裝
+        4. 刷完進 LuCI 會看到 **bootstrap** 主題（OpenWrt 原生）
 
         > ⚠️ **本 Release 只包含 TR3600 自己的两个映像 + manifest。**
         > 早期版本会误把 \`mt7981-ram-*-bl2.bin\`、\`mt7986-ram-*-bl2.bin\`、
@@ -587,7 +587,7 @@ jobs:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
         tag_name: ${{ steps.tag.outputs.release_tag }}
-        name: ${{ env.DEVICE_MODEL }} OpenWrt Pure 純淨性能版 - ${{ env.BUILD_TIMESTAMP }}
+        name: ${{ env.DEVICE_MODEL }} OpenWrt Pure 精簡性能版 - ${{ env.BUILD_TIMESTAMP }}
         body_path: release.txt
         # 只發佈 Organize 步驟挑出來的白名單檔案。
         files: |
@@ -597,7 +597,8 @@ jobs:
 
     # =========================================================
     # 17. 清理旧的 Releases（保留最近 10 个）
-    #    注意 pattern 只匹配 Pure 線，不會動到 iStore 版的 Release。
+    #    注意 pattern 只匹配 Pure 線（現在唯一的建置線）。
+    #    iStore 版建置線已於 2026-10-13 退休，其殘留的 Release / tag 已手動刪除。
     #    刻意「不寫結尾的連字號」：這樣連早期 ...-Pure-Ajay-* 的舊標籤也一併納入汰換，
     #    否則品牌拿掉之後，那些舊標籤會永遠留在 Releases 頁面上沒人清。
     # =========================================================

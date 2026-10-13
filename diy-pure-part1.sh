@@ -3,11 +3,12 @@
 # https://github.com/P3TERX/Actions-OpenWrt
 # File name: diy-pure-part1.sh
 # Description: OpenWrt DIY script part 1 (Before Update Feeds)
-#              純淨基礎 + 性能優化版 — 只裝 iStore 與 TR3600 智能風扇插件
+#               OpenWrt 精簡 + 性能優化版 — 只裝 TR3600 智能風扇插件
 #
 # 這一版刻意「什麼都不 clone」：
-#   * 沒有任何科學上網 / DNS / 主題 / 工具類第三方倉庫
+#   * 沒有任何商店 / 科學上網 / DNS / 主題 / 工具類第三方倉庫
 #   * 唯一的套件來源是 feeds（OpenWrt 官方）+ vendor/（本倉庫內建風扇插件）
+#   * 2026-10-13：iStore 的 linkease/istore feed 也拿掉了
 #
 # 為什麼不 clone：
 #   上游作者（liangcanming）名下倉庫在 2026-10 全部 404，build #1 就是死在
@@ -111,10 +112,13 @@ apply_fan_patch "$PATCHDIR/0008-luci-tr3600-fan-smart-suggestions.patch" \
 	0008-luci-tr3600-fan-smart-suggestions.patch
 
 # =========================================================
-# iStore 應用商店 feed
+# iStore 應用商店 feed：2026-10-13 移除
+#   原本這裡會執行：
+#     echo "src-git istore https://github.com/linkease/istore;main" >> feeds.conf.default
+#   現在不加這個 feed，config 也一併拿掉 luci-app-store / luci-lib-taskd /
+#   luci-lib-xterm / xz-utils。加了 feed 卻不選套件會多抓一份索引，沒必要。
 # =========================================================
-echo "src-git istore https://github.com/linkease/istore;main" >> feeds.conf.default
 
 echo "========================================================"
-echo " TR3600 pure build: part1 done (只裝了風扇插件 + istore feed)"
+echo " TR3600 build: part1 done (只裝了風扇插件，無 iStore)"
 echo "========================================================"
