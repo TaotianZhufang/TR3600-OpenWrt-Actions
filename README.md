@@ -59,12 +59,14 @@ Release 保留最近 10 個。
 .
 ├── .github/workflows/
 │   └── build-openwrt-pure.yml          # 唯一的建置線（精簡性能版）
-├── diy-pure-part1.sh        # feeds 之前：裝風扇插件 + 0003
-├── diy-pure-part2.sh        # feeds 之後：0001~0007 + 0002 + 性能優化
+├── diy-pure-part1.sh        # feeds 之前：裝風扇插件 + 0003 + 複製 files/ overlay
+├── diy-pure-part2.sh        # feeds 之後：0001~0007 + 0002 + HWNAT（sysctl 已移出）
 ├── diy-partX.sh             # 關掉 Ruby YJIT，避免 Rust 長編譯
 ├── mt7987-cudy-tr3600-pure.config                    # 設定檔
-├── files/                   # rootfs overlay（軟體源鏡像）
-│   └── etc/apk/repositories.d/distfeeds.list
+├── files/                   # rootfs overlay（由 include/image.mk 蓋進固件）
+│   └── etc/
+│       ├── apk/repositories.d/distfeeds.list  # apk 源 → SJTU 鏡像
+│       └── sysctl.d/99-tr3600-pure.conf       # fq+BBR、TCP 16 MB、conntrack
 ├── patches/
 │   ├── 0001-tr3600-fan-pwm0.patch
 │   ├── 0002-mt76-mt7996-sta-rec-before-vow.patch
@@ -182,6 +184,51 @@ OpenWrt 出廠的 `/etc/apk/repositories.d/distfeeds.list` 指向
 > ⚠️ 這是**刻意的地區性優化**。若 SJTU 哪天停止鏡像 SNAPSHOT，`apk update` 會失敗。
 > 退路：把 `files/etc/apk/repositories.d/distfeeds.list` 改回 `downloads.openwrt.org`
 > 或刪掉整個 `files/`（機上原本那份備份在 `/root/feed-mirror-backup-20261013/`）。
+
+## sysctl 調校：`files/etc/sysctl.d/`（2026-10-13）
+
+TCP 16 MB 緩衝區以前寫在 `package/base-files/files/etc/sysctl.conf`，但**從來沒生效**——
+實機量到的是 **212992（208 KB）**。因為 `/etc/sysctl.conf` 是 conffile，列在
+`/lib/upgrade/keep.d/base-files-essential` 裡，**`sysupgrade` 保留舊機上的那份，把新映像
+的蓋掉**。而且 `/etc/init.d/sysctl` 的讀取順序是 `sysctl.d/*.conf` 先、`sysctl.conf` 後，
+所以 `sysctl.conf` 反而會覆蓋 `sysctl.d`。
+
+改成 `files/etc/sysctl.d/99-tr3600-pure.conf`（`/etc/sysctl.d/` 不在任何 keep.d 裡 → 永遠
+用新映像的；`99-` 排在內建 `10/11/12-` 之後）：
+
+| 項目 | 舊值 | 新值 |
+|---|---|---|
+| `net.core.default_qdisc` | `fq_codel` | **`fq`** |
+| `net.core.rmem_max` / `wmem_max` | 212992 | **16777216** |
+| `net.core.netdev_max_backlog` | 1000 | 2048 |
+| `net.netfilter.nf_conntrack_max` | 31232 | 65536 |
+
+`default_qdisc=fq` 以前也是**靜默失敗**（`write error: No such file or directory`），因為
+**`sch_fq` 在 `kmod-sched` 而不是 `kmod-sched-core`**。config 已加
+`CONFIG_PACKAGE_kmod-sched=y`，它的 `AUTOLOAD` 用前綴 73 載入 `sch_fq`。
+
+開機順序已實證：`S10boot`（kmodloader 讀 `/etc/modules.d/`）早於 `S11sysctl`——
+證據是機上 `nf_conntrack_acct = 1`，這個值只由 `/etc/sysctl.d/11-nf-conntrack.conf` 設定，
+而它需要 `nf_conntrack` 模組已在。
+
+## USB：儲存 / 網卡 / 共享（2026-10-13）
+
+這台有 USB 3.0 埠（DTS `usb@11200000` = `okay`、`xhci_mtk_hcd` 已載入、兩個 root hub
+都在），但**沒有任何儲存或網路類驅動** → 插隨身碟、插網卡都不會有反應。而 feed 裡
+**一個 kmod 都沒有**（9977 個套件只有 1 個 `kmod-*`），事後 `apk add` 補不了，
+只能編進固件。config 已加：
+
+- **儲存**：`kmod-usb-storage`、`kmod-usb-storage-uas`、`kmod-fs-ext4`、`kmod-fs-exfat`、`block-mount`
+- **USB 網卡**：`kmod-usb-net` + `rtl8152` / `asix-ax88179` / `asix` / `aqc111` /
+  `lan78xx` / `smsc95xx` / `rtl8150` / `mcs7830` / `dm9601-ether` / `sr9700` / `pegasus`
+- **USB 共享（tethering）**：`rndis`（Android/Windows）、`cdc-ncm`（iPhone/4G 網卡）、
+  `cdc-ether`、`cdc-eem`、`cdc-subset`、`ipheth`（iPhone）
+- **WWAN 模組**：`kmod-usb-wdm`、`qmi-wwan`、`cdc-mbim`、`kmod-usb-serial*`、
+  `usb-modeswitch`、`uqmi`、`umbim`、`luci-proto-qmi` / `-mbim`
+- **序列埠**：`ch341` / `cp210x` / `pl2303` / `ftdi`
+
+編譯守門會在 `oldconfig` 之後斷言這些套件仍為 `=y`，並確認
+`wpad-basic-mbedtls` 已被換成 `wpad-mbedtls`（前者缺 802.11r/k/v 快速漫遊與 WPS）。
 
 ## 刷機前必讀
 

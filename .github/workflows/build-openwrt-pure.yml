@@ -40,11 +40,16 @@ name: Build Cudy TR3600 OpenWrt Pure
 #   5. Release / Artifact 只發佈白名單檔案：mediatek/filogic 目錄裡混著
 #      mt7981/mt7986/mt7987/mt7988 的 *-ram-*-bl2.bin（**別顆晶片**的 BL2
 #      RAM loader），刷錯就是磚，一律不發佈。
-#   6. 軟體源鏡像：diy-pure-part1.sh 把倉庫的 files/ 複製成 openwrt/files/，
-#      由 include/image.mk 的 prepare_rootfs 蓋進 rootfs，把 apk 源從
-#      downloads.openwrt.org 換成 mirror.sjtu.edu.cn（國內快 ~30 倍）。
-#      part1 之後先確認 files/ 就位，編譯後再從 build_dir 的 staging rootfs
-#      複查成品裡的那份 distfeeds.list，不是 SJTU 就 exit 1。
+#   6. 軟體源鏡像 + sysctl 調校：diy-pure-part1.sh 把倉庫的 files/ 複製成
+#      openwrt/files/，由 include/image.mk 的 prepare_rootfs 蓋進 rootfs。
+#      (a) 把 apk 源從 downloads.openwrt.org 換成 mirror.sjtu.edu.cn（國內快 ~30 倍）；
+#      (b) 交付 /etc/sysctl.d/99-tr3600-pure.conf（fq + BBR、TCP 16 MB、conntrack）——
+#          **不能**放 /etc/sysctl.conf，那是 conffile，被 sysupgrade 保留會蓋掉新映像的。
+#      part1 之後先確認兩份檔案就位，編譯後再從 build_dir 的 staging rootfs 複查成品。
+#   7. oldconfig 之後斷言必需包仍為 =y：kmod-sched（sch_fq）、wpad-mbedtls（802.11r/k/v）、
+#      USB 儲存（usb-storage/-uas/fs-ext4/fs-exfat/block-mount）與 USB 網卡/共享
+#      （usb-net + rtl8152/ax88179/aqc111/rndis/cdc-ncm/ipheth），並確認
+#      wpad-basic-mbedtls 已被換掉。feed 裡沒有 kmod，事後補不了，只能編譯期保證。
 # =============================================================================
 
 on:
@@ -229,6 +234,23 @@ jobs:
         fi
         echo "✅ 软件源镜像：mirror.sjtu.edu.cn（$(grep -c . "$FEEDLIST") 条）"
 
+        # ---- sysctl 调校：必须走 files/etc/sysctl.d/，不能回退 /etc/sysctl.conf ----
+        # /etc/sysctl.conf 是 conffile，被 /lib/upgrade/keep.d/base-files-essential 保留，
+        # sysupgrade 后旧机上的那份会盖掉新映像的 → 调校永远不生效（实测 rmem_max 停在 208 KB）。
+        # /etc/sysctl.d/ 不被保留，所以调校一律放这里。
+        SYSCTLD=files/etc/sysctl.d/99-tr3600-pure.conf
+        if [ ! -f "$SYSCTLD" ]; then
+          echo "::error title=sysctl 调校缺失::$SYSCTLD 不存在，性能调校不会进固件。"
+          exit 1
+        fi
+        if ! grep -q "default_qdisc=fq" "$SYSCTLD"; then
+          echo "::error title=sysctl 调校缺失::$SYSCTLD 里没有 default_qdisc=fq"; exit 1
+        fi
+        if ! grep -q "rmem_max=16777216" "$SYSCTLD"; then
+          echo "::error title=sysctl 调校缺失::$SYSCTLD 里没有 16 MB 缓冲区"; exit 1
+        fi
+        echo "✅ sysctl 调校：$SYSCTLD（fq + BBR + 16 MB 缓冲区）"
+
         # ---- 纯淨版守门：确认没有任何第三方插件被偷偷 clone 进来 ----
         if [ -d package/custom ]; then
           echo "📦 package/custom 内容（应该只有风扇插件）:"
@@ -301,6 +323,47 @@ jobs:
         grep -E "CONFIG_PACKAGE_(luci-app-store|luci-app-passwall|luci-app-passwall2|luci-app-openclash|luci-app-ssr-plus|luci-theme-argon|luci-theme-aurora|luci-theme-kucat|luci-app-mosdns|luci-app-smartdns|luci-app-openlist|luci-app-ttyd|luci-app-filemanager|luci-app-authshield)=y" .config \
           && { echo "::error title=精简版混入插件::上面这些插件不该出现在精简版 config 里"; exit 1; } \
           || echo "OK: 没有混入非预期插件"
+        echo "========================================"
+
+        # ---- 必须存在的包（oldconfig 之后仍为 y）----
+        # 这些是 2026-10-13 补的：fq 排程、完整 wpad、USB 存储/网卡/共享。
+        # 少了任何一个都会在设备上表现为「功能不存在」，而且 feed 里没有 kmod
+        # 可以事后补装 —— 只能在编译期保证。
+        echo "==== 必须 =y 的包 ===="
+        MISSING=""
+        for sym in \
+          CONFIG_PACKAGE_kmod-sched \
+          CONFIG_PACKAGE_wpad-mbedtls \
+          CONFIG_PACKAGE_kmod-usb-storage \
+          CONFIG_PACKAGE_kmod-usb-storage-uas \
+          CONFIG_PACKAGE_kmod-fs-ext4 \
+          CONFIG_PACKAGE_kmod-fs-exfat \
+          CONFIG_PACKAGE_block-mount \
+          CONFIG_PACKAGE_kmod-usb-net \
+          CONFIG_PACKAGE_kmod-usb-net-rtl8152 \
+          CONFIG_PACKAGE_kmod-usb-net-asix-ax88179 \
+          CONFIG_PACKAGE_kmod-usb-net-aqc111 \
+          CONFIG_PACKAGE_kmod-usb-net-rndis \
+          CONFIG_PACKAGE_kmod-usb-net-cdc-ncm \
+          CONFIG_PACKAGE_kmod-usb-net-ipheth \
+        ; do
+          if grep -q "^${sym}=y" .config; then
+            echo "  [OK] $sym"
+          else
+            echo "  [MISS] $sym"
+            MISSING="$MISSING $sym"
+          fi
+        done
+        if [ -n "$MISSING" ]; then
+          echo "::error title=必需包没进 config::这些包在 oldconfig 后不是 =y:$MISSING"
+          exit 1
+        fi
+        # wpad-basic-mbedtls 必须被换掉（缺 802.11r/k/v 与 WPS）
+        if grep -q "^CONFIG_PACKAGE_wpad-basic-mbedtls=y" .config; then
+          echo "::error title=wpad 没换::wpad-basic-mbedtls 仍为 =y，缺 802.11r/k/v 与 WPS"
+          exit 1
+        fi
+        echo "✅ 必需包齐全（fq 排程 / wpad-mbedtls / USB 存储+网卡+共享）"
         echo "========================================"
 
     # =========================================================
@@ -549,6 +612,28 @@ jobs:
           done
           if [ "$FOUND" -eq 0 ]; then
             echo "::error title=找不到固件里的 distfeeds.list::files/ overlay 可能没被复制进 rootfs"
+            exit 1
+          fi
+
+          echo
+          echo "=== sysctl 调校（固件里真正生效的那份）==="
+          # 同一个 overlay 也交付 /etc/sysctl.d/99-tr3600-pure.conf。这里复查 staging
+          # 里确实有这份，而且没有退回被 sysupgrade 保留的 /etc/sysctl.conf。
+          FOUND_SYSCTL=0
+          for f in $(find openwrt/build_dir -path '*root-*/etc/sysctl.d/99-tr3600-pure.conf' 2>/dev/null); do
+            FOUND_SYSCTL=1
+            echo "  -- $f"
+            cat "$f" | sed 's/^/     /'
+            if ! grep -q "default_qdisc=fq" "$f"; then
+              echo "  [FAIL] 这份没有 default_qdisc=fq"; exit 1
+            fi
+            if ! grep -q "rmem_max=16777216" "$f"; then
+              echo "  [FAIL] 这份没有 16 MB 缓冲区"; exit 1
+            fi
+            echo "  [OK] fq + BBR + 16 MB 缓冲区"
+          done
+          if [ "$FOUND_SYSCTL" -eq 0 ]; then
+            echo "::error title=找不到固件里的 sysctl 调校::files/ overlay 可能没被复制进 rootfs"
             exit 1
           fi
         } > build-evidence.txt 2>&1

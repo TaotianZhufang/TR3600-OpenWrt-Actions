@@ -122,7 +122,7 @@ apply_fan_patch "$PATCHDIR/0003-luci-tr3600-fan-keep-pending-input.patch" \
 # =========================================================
 
 # =========================================================
-# 軟體源鏡像：官方 downloads.openwrt.org → 上海交大 SJTU
+# rootfs overlay（files/）：軟體源鏡像 + sysctl 調校
 # =========================================================
 # OpenWrt 產出的 /etc/apk/repositories.d/distfeeds.list 預設指向
 #   https://downloads.openwrt.org/releases/25.12-SNAPSHOT/...
@@ -138,12 +138,16 @@ apply_fan_patch "$PATCHDIR/0003-luci-tr3600-fan-keep-pending-input.patch" \
 # 只鏡像 releases/，對 SNAPSHOT 一律回 404（實測）。SJTU 是目前唯一
 # 有完整 25.12-SNAPSHOT 的中國鏡像，7 條索引路徑全部 200。
 #
+# 同一個 overlay 也交付 /etc/sysctl.d/99-tr3600-pure.conf（fq+BBR、TCP 16 MB、
+# conntrack）。為什麼不寫 /etc/sysctl.conf：那是 conffile，被 sysupgrade 保留，
+# 舊機上的檔案會蓋掉新映像的版本 → 調校永遠不生效（實測 rmem_max 停在 208 KB）。
+#
 # 實作方式：OpenWrt 支援在原始碼樹根放一個 files/ 目錄當 rootfs overlay
 # （include/image.mk:403 `$(call prepare_rootfs,$(dir),$(TOPDIR)/files)`），
 # 它在套件安裝**之後**、postinst **之前**被複製進 rootfs，所以會蓋掉
-# base-files 產生的那份 distfeeds.list。
+# base-files 產生的那些檔案。
 if [ -d "$REPO_ROOT/files" ]; then
-	echo "[tr3600-pure] 安裝軟體源鏡像 overlay: $REPO_ROOT/files"
+	echo "[tr3600-pure] 安裝 rootfs overlay: $REPO_ROOT/files"
 	cp -a "$REPO_ROOT/files" ./files
 	if [ ! -f ./files/etc/apk/repositories.d/distfeeds.list ]; then
 		echo "ERROR: files/ 裡沒有 distfeeds.list，鏡像不會生效"
@@ -153,7 +157,20 @@ if [ -d "$REPO_ROOT/files" ]; then
 		echo "ERROR: distfeeds.list 沒有指向 SJTU 鏡像"
 		exit 1
 	fi
-	echo "[tr3600-pure] distfeeds.list → mirror.sjtu.edu.cn（7 條）"
+	echo "[tr3600-pure] distfeeds.list → mirror.sjtu.edu.cn（$(grep -c . ./files/etc/apk/repositories.d/distfeeds.list) 條）"
+	if [ ! -f ./files/etc/sysctl.d/99-tr3600-pure.conf ]; then
+		echo "ERROR: files/ 裡沒有 etc/sysctl.d/99-tr3600-pure.conf，sysctl 調校不會生效"
+		exit 1
+	fi
+	if ! grep -q "default_qdisc=fq" ./files/etc/sysctl.d/99-tr3600-pure.conf; then
+		echo "ERROR: sysctl.d/99-tr3600-pure.conf 裡沒有 default_qdisc=fq"
+		exit 1
+	fi
+	if ! grep -q "rmem_max=16777216" ./files/etc/sysctl.d/99-tr3600-pure.conf; then
+		echo "ERROR: sysctl.d/99-tr3600-pure.conf 裡沒有 16 MB 緩衝區設定"
+		exit 1
+	fi
+	echo "[tr3600-pure] sysctl.d/99-tr3600-pure.conf → fq + BBR + 16 MB 緩衝區"
 else
 	echo "ERROR: $REPO_ROOT/files 不存在，軟體源會退回慢速的 downloads.openwrt.org"
 	exit 1

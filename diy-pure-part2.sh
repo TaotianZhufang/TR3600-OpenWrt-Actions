@@ -5,11 +5,18 @@
 # Description: OpenWrt DIY script part 2 (After Update Feeds)
 #              純淨基礎 + 性能優化版
 #
-# 這個腳本做四件事：
+# 這個腳本做三件事：
 #   1. 預設 IP / 語言 / 主題（bootstrap，OpenWrt 原生）
 #   2. 板級 DTS 修正 0001 / 0004 / 0005 / 0006 / 0007（風扇 + LED + WiFi MAC）
 #   3. mt76 backport 0002（STA_REC 先於 VoW，修 wifi down/up 後連不上）
-#   4. 性能優化：BBR + fq、硬體流量卸載（HWNAT）、TCP 緩衝區
+#   ＋ uci-defaults 兜底（語言 / 主題 / HWNAT 硬體流量卸載）
+#
+# 註：sysctl 性能調校（fq + BBR、TCP 16 MB 緩衝區、conntrack）**已經不在這裡**。
+#     以前 append 到 package/base-files/files/etc/sysctl.conf，但那個檔案是 conffile，
+#     被 /lib/upgrade/keep.d/base-files-essential 保留 → sysupgrade 後舊機上的檔案
+#     會蓋掉新映像的版本，調校等於永遠不生效（實測 rmem_max 一直停在 208 KB）。
+#     現在改由倉庫的 files/etc/sysctl.d/99-tr3600-pure.conf 交付（files/ 是 rootfs
+#     overlay，而 /etc/sysctl.d/ 不被 sysupgrade 保留）。見 diy-pure-part1.sh。
 #
 # 每個 DTS patch 都先 --dry-run 再套用，套用後複查標記字串；任何一個沒生效
 # 就 exit 1，絕不產出「看起來編過了但其實沒修」的固件。
@@ -60,31 +67,16 @@ else
 fi
 
 # =========================================================
-# 2. 性能優化（sysctl）
+# 2. 性能優化（sysctl）—— 已搬到 files/etc/sysctl.d/99-tr3600-pure.conf
 # =========================================================
-SYSCTL=package/base-files/files/etc/sysctl.conf
-if [ -f "$SYSCTL" ]; then
-	if grep -q '^net.ipv4.tcp_congestion_control=bbr' "$SYSCTL" 2>/dev/null; then
-		echo "[tr3600-pure] sysctl 已經有 bbr，跳過"
-	else
-		cat >> "$SYSCTL" <<'EOS'
-
-# ---- TR3600 pure build: 性能優化 ----
-# BBR 擁塞控制 + fq 排程（低延遲、高吞吐，取代預設 cubic）
-net.core.default_qdisc=fq
-net.ipv4.tcp_congestion_control=bbr
-# 2.5G WAN 的 TCP 緩衝區（預設值在高頻寬 x 高延遲下會限制吞吐）
-net.core.rmem_max=16777216
-net.core.wmem_max=16777216
-net.ipv4.tcp_rmem=4096 131072 16777216
-net.ipv4.tcp_wmem=4096 65536 16777216
-EOS
-		echo "[tr3600-pure] 已寫入 $SYSCTL"
-	fi
-else
-	echo "[tr3600-pure] WARNING: $SYSCTL 不存在，改由 uci-defaults 於首次開機寫入"
-	SYSCTL_FALLBACK=1
-fi
+# 這裡以前會 append 到 package/base-files/files/etc/sysctl.conf。
+# 那個做法有兩個問題，所以整段拿掉了：
+#   1. /etc/sysctl.conf 是 conffile，被 sysupgrade 保留 → 新映像的版本被舊檔蓋掉。
+#   2. /etc/init.d/sysctl 讀取順序是 sysctl.d/*.conf 先、sysctl.conf 後，
+#      所以 sysctl.conf 反而會覆蓋 sysctl.d。
+# 現在統一由 files/ overlay 交付（files/ 由 include/image.mk 的 prepare_rootfs
+# 蓋進 rootfs；/etc/sysctl.d/ 不被保留 → 永遠用新映像的）。
+# files/ 的複製與守門在 diy-pure-part1.sh。
 
 # =========================================================
 # 3. uci-defaults：語言 / 主題 / 硬體流量卸載
@@ -113,29 +105,6 @@ exit 0
 EOS
 chmod 0755 "$THEME_UCI"
 echo "[tr3600-pure] installed $THEME_UCI"
-
-# sysctl.conf 不存在時的備援：首次開機把設定寫進去並立即生效
-if [ "${SYSCTL_FALLBACK:-0}" = "1" ]; then
-	cat > "$THEME_UCI.sysctl" <<'EOS'
-#!/bin/sh
-if ! grep -q '^net.ipv4.tcp_congestion_control=bbr' /etc/sysctl.conf 2>/dev/null; then
-	cat >> /etc/sysctl.conf <<'INNER'
-net.core.default_qdisc=fq
-net.ipv4.tcp_congestion_control=bbr
-net.core.rmem_max=16777216
-net.core.wmem_max=16777216
-net.ipv4.tcp_rmem=4096 131072 16777216
-net.ipv4.tcp_wmem=4096 65536 16777216
-INNER
-fi
-sysctl -q -w net.core.default_qdisc=fq 2>/dev/null || true
-sysctl -q -w net.ipv4.tcp_congestion_control=bbr 2>/dev/null || true
-exit 0
-EOS
-	chmod 0755 "$THEME_UCI.sysctl"
-	mv "$THEME_UCI.sysctl" "$(dirname "$THEME_UCI")/98-tr3600-pure-sysctl"
-	echo "[tr3600-pure] installed 98-tr3600-pure-sysctl (sysctl.conf fallback)"
-fi
 
 # =========================================================
 # 4. 板級 DTS 修正
