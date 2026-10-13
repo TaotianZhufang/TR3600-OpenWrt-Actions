@@ -78,18 +78,20 @@ done
 chmod 0755 "$FANPKG/Makefile" 2>/dev/null || true
 
 # --- LuCI 風扇頁補丁 ---
-#   0003：5 秒輪詢不得覆蓋使用者尚未送出的輸入（滑桿彈回）。
-#   0008：智能季節建議（待機基準 → 建議曲線、季節覆寫、一鍵套用）。
+#   0003：5 秒輪詢不得覆蓋使用者尚未送出的輸入（滑桿彈回）。**保留**。
 #
-# 順序不能顛倒，而且 0003 必須成功：0008 的 JS hunk 以 0003 加進去的
-# `dirty` 旗標那幾行當 context。實測沒有 0003 就上 0008 → 7 個 hunk 有
-# 3 個 FAILED，留下 .rej 與半套的風扇頁。所以這裡兩個都改成硬失敗，
-# 不再「打不上去就繼續」——半套的風扇頁比編譯失敗難查得多。
+#   ⚠️ 0008「智能季節建議」已於 2026-10-13 **下線**。
+#      它讓風扇頁長出 smart 模式 + 三條季節曲線 + 日曆判斷 + 待機基準建議，
+#      但那些全是**內核 step_wise 已經在做的事**的第二次實作：DTS 的 trip 點
+#      （68/78/88 → 0/50%/78%/100%）本來就會驅動風扇，用戶態每 10 秒再算一遍
+#      只是多一層會壞的東西，還把 UI 弄得很難懂。現在風扇只有 auto / manual。
+#      補丁留在 retired/0008-…（不再套用）。
+#
+# 0003 改成硬失敗，不再「打不上去就繼續」——半套的風扇頁比編譯失敗難查得多。
 #
 # -F 0 / --no-backup-if-mismatch 不是裝飾：
 #   預設 fuzz=2，上游只要動到 hunk 邊界那幾行，patch 就會「模糊命中」
-#   照樣 rc=0 並留下 .orig —— 實測把 temperatureText() 那行改掉之後，
-#   0008 仍然 rc=0 硬塞進去。加 -F 0 之後同樣的漂移會 rc=1 直接失敗。
+#   照樣 rc=0 並留下 .orig。加 -F 0 之後同樣的漂移會 rc=1 直接失敗。
 apply_fan_patch() {
 	local p="$1" name="$2"
 	if [ ! -f "$p" ]; then
@@ -108,8 +110,8 @@ apply_fan_patch() {
 
 apply_fan_patch "$PATCHDIR/0003-luci-tr3600-fan-keep-pending-input.patch" \
 	0003-luci-tr3600-fan-keep-pending-input.patch
-apply_fan_patch "$PATCHDIR/0008-luci-tr3600-fan-smart-suggestions.patch" \
-	0008-luci-tr3600-fan-smart-suggestions.patch
+# 0008（智能季節建議）已下線，不再套用 —— 見上面註解。
+# 想要更簡單的風扇頁就不要把 0008 加回來：它就是複雜度的來源。
 
 # =========================================================
 # iStore 應用商店 feed：2026-10-13 移除

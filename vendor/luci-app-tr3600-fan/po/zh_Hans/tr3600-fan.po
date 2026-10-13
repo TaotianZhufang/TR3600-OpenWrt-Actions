@@ -1,8 +1,8 @@
 msgid ""
 msgstr "Content-Type: text/plain; charset=UTF-8\n"
 
-msgid "TR3600 Fan Control"
-msgstr "TR3600 风扇控制"
+msgid "智能风扇"
+msgstr "智能风扇"
 
 msgid "Automatic thermal control"
 msgstr "自动温控"

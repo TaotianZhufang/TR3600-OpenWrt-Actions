@@ -17,11 +17,12 @@ name: Build Cudy TR3600 OpenWrt Pure
 #        patches/0005-tr3600-wifi-mac-layout.patch   (WiFi MAC: 2.4G=base+0, 5G=base+0x10)
 #        patches/0006-tr3600-fan-thermal-curve.patch (溫控: 60C 以下停轉, 65/75/85 三段)
 #        patches/0007-tr3600-fan-curve-tune.patch    (風扇曲線調校: 50/78/100%, 68/78/88C)
-#        patches/0008-luci-tr3600-fan-smart-suggestions.patch
-#                                                     (風扇頁智能季節建議: 待機基準→建議曲線、
-#                                                      季節覆寫、一鍵套用；三檔曲線
-#                                                      winter 68/78/88、mild 66/76/86、
-#                                                      summer 58/68/78)
+#
+# 已下線： patches/0008-luci-tr3600-fan-smart-suggestions.patch
+#        （風扇頁智能季節建議）—— 2026-10-13 移除，補丁留在 retired/patches/。
+#        它把「內核 step_wise 本來就會做的事」在用戶態又重做一遍（季節曲線 +
+#        日曆 + 待機基準），只是多一層會壞的東西，還讓 UI 變得難懂。
+#        風扇頁現在只有 auto / manual 兩種模式。
 # 設定： mt7987-cudy-tr3600-pure.config
 # 性能： sysctl fq + BBR、TCP 緩衝區加大、HWNAT 硬體流量卸載、WED 無線卸載
 #
@@ -33,9 +34,9 @@ name: Build Cudy TR3600 OpenWrt Pure
 #      dry-run + 套用後複查，任何一個不生效就 exit 1。
 #   4. 風扇插件內建於 vendor/，不 clone 任何第三方倉庫（精簡版連回退 clone 都
 #      沒有：vendor/ 不見就直接失敗）。part1 之後會確認套件存在且腳本 0755，
-#      並複查 0003（dirty flag）與 0008（智能季節建議）兩個 LuCI patch 都套上了。
-#      **0003 必須先套、而且必須成功**：0008 的 hunk 用 0003 加進去的 dirty
-#      旗標那幾行當 context，順序顛倒會留下 .rej 與半套的風扇頁。
+#      複查 0003（dirty flag）套上了，**反向斷言 0008 沒有跑回來**
+#      （風扇頁只該有 auto / manual；季節機制一旦出現就 exit 1），
+#      並斷言模組名仍是「智能風扇」（menu.d title + 頁面 h2，中英文一致）。
 #   5. Release / Artifact 只發佈白名單檔案：mediatek/filogic 目錄裡混著
 #      mt7981/mt7986/mt7987/mt7988 的 *-ram-*-bl2.bin（**別顆晶片**的 BL2
 #      RAM loader），刷錯就是磚，一律不發佈。
@@ -165,18 +166,40 @@ jobs:
         grep -qF "if (!dirty) {" "$FANPKG/htdocs/luci-static/resources/view/tr3600-fan.js" \
           || echo "::warning title=0003 未套用::LuCI 风扇页 dirty flag 补丁没生效（非致命）"
 
-        # ---- 0008：智能季节建议必须就位 ----
-        # diy-pure-part1.sh 里打不上就会 exit 1，这里再独立复核一次：
-        # 只要有一处没套上，就说明编出来的固件缺了这次要做的功能。
-        grep -qF 'season_trips() {' "$FANPKG/root/usr/sbin/tr3600-fan" \
-          || { echo "::error title=0008 未套用::风扇 helper 里没有 season_trips()"; exit 1; }
-        grep -qF 'Smart suggestion' "$FANPKG/htdocs/luci-static/resources/view/tr3600-fan.js" \
-          || { echo "::error title=0008 未套用::LuCI 风扇页没有「智能建议」区块"; exit 1; }
-        grep -qF "option season 'auto'" "$FANPKG/root/etc/config/tr3600-fan" \
-          || { echo "::error title=0008 未套用::/etc/config/tr3600-fan 缺少 season 选项"; exit 1; }
-        grep -qF 'summer) echo "58000 68000 78000"' "$FANPKG/root/usr/sbin/tr3600-fan" \
-          || { echo "::error title=0008 曲线被改::三档季节曲线里的夏季档不见了"; exit 1; }
-        echo "✅ 智能季节建议已就位（season_trips / 智能建议区块 / season 选项）"
+        # ---- 0008（智能季节建议）已于 2026-10-13 下线 ----
+        # 风扇页现在只有 auto / manual 两种模式。这里是**反向断言**：季节
+        # 机制不该出现在固件里。哪天有人把 0008 加回来，这一步会直接失败。
+        for pat in 'season_trips' 'set_smart' 'SEASON_TRIPS' 'Smart suggestion'; do
+          if grep -qF "$pat" "$FANPKG/root/usr/sbin/tr3600-fan" \
+               "$FANPKG/htdocs/luci-static/resources/view/tr3600-fan.js" 2>/dev/null; then
+            echo "::error title=0008 又跑回来了::固件里出现「$pat」，风扇页应该只有 auto / manual"
+            exit 1
+          fi
+        done
+        if grep -qF "option season" "$FANPKG/root/etc/config/tr3600-fan"; then
+          echo "::error title=0008 又跑回来了::/etc/config/tr3600-fan 出现了 season 选项"
+          exit 1
+        fi
+        echo "✅ 风扇页精简：只有 auto / manual，无季节机制"
+
+        # ---- 模块名：智能风扇（2026-10-13 改名） ----
+        # menu.d 的 title 与页面 h2 用同一个字面量「智能风扇」，po 目录里也有
+        # 同名条目（msgid == msgstr）。这样中英文模式都会显示「智能风扇」：
+        # 中文模式查到条目返回自身，英文模式没有 en 目录，回退到 msgid 也是自身。
+        if ! grep -qF '"title": "智能风扇"' "$FANPKG/root/usr/share/luci/menu.d/luci-app-tr3600-fan.json"; then
+          echo "::error title=模块名被改动::menu.d 的 title 不是「智能风扇」"
+          exit 1
+        fi
+        if ! grep -qF "智能风扇" "$FANPKG/htdocs/luci-static/resources/view/tr3600-fan.js"; then
+          echo "::error title=模块名被改动::风扇页 h2 不是「智能风扇」"
+          exit 1
+        fi
+        if grep -qF 'TR3600 Fan Control' "$FANPKG/htdocs/luci-static/resources/view/tr3600-fan.js" \
+           "$FANPKG/root/usr/share/luci/menu.d/luci-app-tr3600-fan.json" 2>/dev/null; then
+          echo "::error title=旧模块名残留::风扇模块还留着 TR3600 Fan Control"
+          exit 1
+        fi
+        echo "✅ 模块名：智能风扇（中英文模式一致）"
 
         echo "✅ 风扇插件就位：$FANPKG（脚本 0755）"
 

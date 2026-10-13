@@ -1,6 +1,6 @@
 {
 	"admin/system/tr3600-fan": {
-		"title": "TR3600 Fan Control",
+		"title": "智能风扇",
 		"order": 90,
 		"action": {
 			"type": "view",

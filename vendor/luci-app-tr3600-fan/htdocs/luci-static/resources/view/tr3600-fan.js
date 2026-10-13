@@ -98,7 +98,7 @@ return view.extend({
 		poll.add(function() { return self.load().then(update); }, 5);
 
 		return E('div', { class: 'cbi-map' }, [
-			E('h2', {}, _('TR3600 Fan Control')),
+			E('h2', {}, _('智能风扇')),
 			E('div', { class: 'cbi-section' }, [
 				E('div', { class: 'cbi-value' }, [
 					E('label', { class: 'cbi-value-title', for: 'tr3600-fan-mode' }, _('Mode')),
