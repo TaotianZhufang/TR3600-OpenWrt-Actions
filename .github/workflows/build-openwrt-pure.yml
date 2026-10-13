@@ -40,6 +40,11 @@ name: Build Cudy TR3600 OpenWrt Pure
 #   5. Release / Artifact 只發佈白名單檔案：mediatek/filogic 目錄裡混著
 #      mt7981/mt7986/mt7987/mt7988 的 *-ram-*-bl2.bin（**別顆晶片**的 BL2
 #      RAM loader），刷錯就是磚，一律不發佈。
+#   6. 軟體源鏡像：diy-pure-part1.sh 把倉庫的 files/ 複製成 openwrt/files/，
+#      由 include/image.mk 的 prepare_rootfs 蓋進 rootfs，把 apk 源從
+#      downloads.openwrt.org 換成 mirror.sjtu.edu.cn（國內快 ~30 倍）。
+#      part1 之後先確認 files/ 就位，編譯後再從 build_dir 的 staging rootfs
+#      複查成品裡的那份 distfeeds.list，不是 SJTU 就 exit 1。
 # =============================================================================
 
 on:
@@ -202,6 +207,27 @@ jobs:
         echo "✅ 模块名：智能风扇（中英文模式一致）"
 
         echo "✅ 风扇插件就位：$FANPKG（脚本 0755）"
+
+        # ---- 软件源镜像：必须是 SJTU，不能退回 downloads.openwrt.org ----
+        # 官方源在国内慢到不可用（实测 14 KB 的索引要 9.75 s ≈ 1.5 KB/s）。
+        # diy-pure-part1.sh 会把仓库里的 files/ 复制成 openwrt/files/，由
+        # include/image.mk 的 prepare_rootfs 盖进 rootfs。这里只确认它到位；
+        # 真正进固件后的复查在下面 Dump build evidence 那一步。
+        FEEDLIST=files/etc/apk/repositories.d/distfeeds.list
+        if [ ! -f "$FEEDLIST" ]; then
+          echo "::error title=软件源镜像缺失::$FEEDLIST 不存在，diy-pure-part1.sh 没把 files/ 复制进来。"
+          exit 1
+        fi
+        if ! grep -q "mirror.sjtu.edu.cn" "$FEEDLIST"; then
+          echo "::error title=软件源镜像没生效::$FEEDLIST 里没有 mirror.sjtu.edu.cn。"
+          cat "$FEEDLIST"
+          exit 1
+        fi
+        if grep -q "downloads.openwrt.org" "$FEEDLIST"; then
+          echo "::error title=软件源镜像残留官方源::$FEEDLIST 里还有 downloads.openwrt.org"
+          exit 1
+        fi
+        echo "✅ 软件源镜像：mirror.sjtu.edu.cn（$(grep -c . "$FEEDLIST") 条）"
 
         # ---- 纯淨版守门：确认没有任何第三方插件被偷偷 clone 进来 ----
         if [ -d package/custom ]; then
@@ -501,6 +527,30 @@ jobs:
           echo
           echo "=== 纯净版检查：package/custom 里应该只有风扇插件 ==="
           ls -1 openwrt/package/custom 2>/dev/null || echo "(none)"
+          echo
+          echo "=== 软件源镜像（固件里真正生效的那份）==="
+          # files/ 是 rootfs overlay，由 include/image.mk 的 prepare_rootfs 复制进
+          # 各文件系统的 staging 目录。这里直接看 staging 里的成品，确认 overlay
+          # 真的盖掉了 base-files 生成的官方源。
+          FOUND=0
+          for f in $(find openwrt/build_dir -path '*root-*/etc/apk/repositories.d/distfeeds.list' 2>/dev/null); do
+            FOUND=1
+            echo "  -- $f"
+            cat "$f" | sed 's/^/     /'
+            if ! grep -q "mirror.sjtu.edu.cn" "$f"; then
+              echo "  [FAIL] 这份不是 SJTU 镜像"
+              exit 1
+            fi
+            if grep -q "downloads.openwrt.org" "$f"; then
+              echo "  [FAIL] 这份还指向 downloads.openwrt.org"
+              exit 1
+            fi
+            echo "  [OK] 指向 mirror.sjtu.edu.cn"
+          done
+          if [ "$FOUND" -eq 0 ]; then
+            echo "::error title=找不到固件里的 distfeeds.list::files/ overlay 可能没被复制进 rootfs"
+            exit 1
+          fi
         } > build-evidence.txt 2>&1
         cat build-evidence.txt
 

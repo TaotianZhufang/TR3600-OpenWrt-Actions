@@ -121,6 +121,44 @@ apply_fan_patch "$PATCHDIR/0003-luci-tr3600-fan-keep-pending-input.patch" \
 #   luci-lib-xterm / xz-utils。加了 feed 卻不選套件會多抓一份索引，沒必要。
 # =========================================================
 
+# =========================================================
+# 軟體源鏡像：官方 downloads.openwrt.org → 上海交大 SJTU
+# =========================================================
+# OpenWrt 產出的 /etc/apk/repositories.d/distfeeds.list 預設指向
+#   https://downloads.openwrt.org/releases/25.12-SNAPSHOT/...
+# 這在中國大陸慢到不能用的程度。實測（2026-10-13，同一條 WAN）：
+#
+#   targets/mediatek/filogic/packages/packages.adb 只有 14 KB
+#     downloads.openwrt.org  9.75 s   ≈ 1.5 KB/s   ← 預設值
+#     mirror.sjtu.edu.cn     0.32 s                ← 快 ~30 倍
+#   整份 apk update（7 個索引、約 1.4 MB）
+#     上游 ≈ 70 s 以上  →  SJTU 4 s
+#
+# 為什麼只有 SJTU：25.12-SNAPSHOT 是「滾動快照」，TUNA / USTC / 阿里雲
+# 只鏡像 releases/，對 SNAPSHOT 一律回 404（實測）。SJTU 是目前唯一
+# 有完整 25.12-SNAPSHOT 的中國鏡像，7 條索引路徑全部 200。
+#
+# 實作方式：OpenWrt 支援在原始碼樹根放一個 files/ 目錄當 rootfs overlay
+# （include/image.mk:403 `$(call prepare_rootfs,$(dir),$(TOPDIR)/files)`），
+# 它在套件安裝**之後**、postinst **之前**被複製進 rootfs，所以會蓋掉
+# base-files 產生的那份 distfeeds.list。
+if [ -d "$REPO_ROOT/files" ]; then
+	echo "[tr3600-pure] 安裝軟體源鏡像 overlay: $REPO_ROOT/files"
+	cp -a "$REPO_ROOT/files" ./files
+	if [ ! -f ./files/etc/apk/repositories.d/distfeeds.list ]; then
+		echo "ERROR: files/ 裡沒有 distfeeds.list，鏡像不會生效"
+		exit 1
+	fi
+	if ! grep -q "mirror.sjtu.edu.cn" ./files/etc/apk/repositories.d/distfeeds.list; then
+		echo "ERROR: distfeeds.list 沒有指向 SJTU 鏡像"
+		exit 1
+	fi
+	echo "[tr3600-pure] distfeeds.list → mirror.sjtu.edu.cn（7 條）"
+else
+	echo "ERROR: $REPO_ROOT/files 不存在，軟體源會退回慢速的 downloads.openwrt.org"
+	exit 1
+fi
+
 echo "========================================================"
 echo " TR3600 build: part1 done (只裝了風扇插件，無 iStore)"
 echo "========================================================"

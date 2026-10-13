@@ -63,6 +63,8 @@ Release 保留最近 10 個。
 ├── diy-pure-part2.sh        # feeds 之後：0001~0007 + 0002 + 性能優化
 ├── diy-partX.sh             # 關掉 Ruby YJIT，避免 Rust 長編譯
 ├── mt7987-cudy-tr3600-pure.config                    # 設定檔
+├── files/                   # rootfs overlay（軟體源鏡像）
+│   └── etc/apk/repositories.d/distfeeds.list
 ├── patches/
 │   ├── 0001-tr3600-fan-pwm0.patch
 │   ├── 0002-mt76-mt7996-sta-rec-before-vow.patch
@@ -148,6 +150,38 @@ LuCI 選單與頁面標題都是 **智能風扇**，**中英文模式都一樣**
 做法是讓 menu.d 的 `title` 與頁面 `h2` 用同一個字面量，`po/zh_Hans` 裡也放同名條目
 （`msgid == msgstr`）。中文模式查到條目回傳自身；英文模式沒有 en 目錄，回退到 msgid
 也是自身——兩邊都穩定顯示「智能風扇」，不會退回 `TR3600 Fan Control`。編譯守門會斷言這件事。
+
+## 軟體源鏡像：SJTU（2026-10-13）
+
+OpenWrt 出廠的 `/etc/apk/repositories.d/distfeeds.list` 指向
+`https://downloads.openwrt.org/releases/25.12-SNAPSHOT/...`。這在國內**慢到不能用**：
+
+| 來源 | `targets/mediatek/filogic/packages/packages.adb`（14 KB） | 整份 `apk update`（7 個索引，約 1.4 MB） |
+|---|---|---|
+| `downloads.openwrt.org`（預設） | **9.75 s**（≈ 1.5 KB/s） | 70 s 以上 |
+| `mirror.sjtu.edu.cn` | **0.32 s** | **4 s** |
+
+換成 SJTU 之後 `apk update` **快約 30 倍**，而且依賴解析完全正常
+（實測 `apk add --simulate luci-app-ttyd` 正確解析出 5 個套件，LuCI 版本號
+`26.284.22350~8125d12` 與機上完全一致）。
+
+**為什麼只有 SJTU**：25.12-SNAPSHOT 是滾動快照，TUNA / USTC / 阿里雲只鏡像
+`releases/`，對 `SNAPSHOT` 一律回 **404**（實測）。SJTU 是目前唯一有完整
+25.12-SNAPSHOT 的國內鏡像，7 條索引路徑全部 **200**。
+
+**實作**：倉庫根目錄的 `files/` 是 OpenWrt 的 rootfs overlay ——
+`include/image.mk:403` 有 `$(call prepare_rootfs,$(mkfs_cur_target_dir),$(TOPDIR)/files)`，
+它在套件安裝**之後**、postinst **之前**把 `files/` 複製進 rootfs，所以會蓋掉
+`base-files` 產生的那份 `distfeeds.list`。`diy-pure-part1.sh` 負責把倉庫的 `files/`
+複製成 `openwrt/files/`。
+
+**兩道守門**：`part1` 之後確認 `files/etc/apk/repositories.d/distfeeds.list` 存在且
+指向 SJTU；編譯後再從 `build_dir/*/root-*/etc/apk/repositories.d/distfeeds.list`
+（真正進固件的那份）複查，不是 SJTU 就 `exit 1`。
+
+> ⚠️ 這是**刻意的地區性優化**。若 SJTU 哪天停止鏡像 SNAPSHOT，`apk update` 會失敗。
+> 退路：把 `files/etc/apk/repositories.d/distfeeds.list` 改回 `downloads.openwrt.org`
+> 或刪掉整個 `files/`（機上原本那份備份在 `/root/feed-mirror-backup-20261013/`）。
 
 ## 刷機前必讀
 
