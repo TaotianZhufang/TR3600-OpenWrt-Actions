@@ -80,10 +80,50 @@ config_level() {
 	uci -q get "$CONFIG.level" 2>/dev/null || echo 2
 }
 
+# Lowest "active" trip temperature of a thermal zone, read from sysfs.
+# Used to decide whether the SoC is cool enough that the fan should be off.
+# Read rather than hardcoded so the DTS trip points stay the single source of
+# truth for the curve.
+lowest_active_trip() {
+	local zone="$1" f type temp min=""
+
+	for f in "$zone"/trip_point_*_temp; do
+		[ -r "$f" ] || continue
+		[ "$(cat "${f%_temp}_type" 2>/dev/null)" = active ] || continue
+		temp="$(cat "$f" 2>/dev/null)"
+		case "$temp" in
+		''|*[!0-9]*) continue ;;
+		esac
+		[ -n "$min" ] && [ "$temp" -ge "$min" ] && continue
+		min="$temp"
+	done
+
+	echo "$min"
+}
+
 set_auto() {
+	local zone temp low
+
 	uci set "$CONFIG.mode=auto"
 	uci commit tr3600-fan
 	set_policy "$(policy_file)" step_wise || true
+
+	# step_wise 只在 trip 跨越門檻（threshold crossing）時才會動作。手動模式
+	# 走 user_space，它留下的 cur_state 在溫度已經落回所有 trip 之下時不會
+	# 被 step_wise 清掉——沒有跨越事件，governor 根本不會被叫到——風扇就
+	# 一直停在手動檔位，正是「待機低鳴」。
+	# 所以這裡只在溫度低於**最低的 active trip** 時明確歸零：這個條件下關
+	# 風扇一定正確，而且門檻是從 sysfs 讀的，不是把曲線再寫一份在用戶態。
+	zone="$(thermal_zone)"
+	[ -n "$zone" ] || return 0
+	temp="$(cat "$zone/temp" 2>/dev/null)"
+	case "$temp" in
+	''|*[!0-9]*) return 0 ;;
+	esac
+	low="$(lowest_active_trip "$zone")"
+	if [ -n "$low" ] && [ "$temp" -lt "$low" ]; then
+		set_state 0
+	fi
 }
 
 set_manual() {
