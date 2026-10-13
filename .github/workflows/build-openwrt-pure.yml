@@ -52,6 +52,8 @@ name: Build Cudy TR3600 OpenWrt Pure
 #      （zerotier / tailscale / kmod-wireguard / openvpn / passwall2 / aria2 /
 #        samba4 / luci-app-ddns / mosdns / ddns-go / webdav），並確認
 #      wpad-basic-mbedtls 已被換掉。feed 裡沒有 kmod，事後補不了，只能編譯期保證。
+#      **daemon 也要斷言，不只 LuCI 前端**（ddns-go / mosdns / rpcd-mod-wireguard /
+#      openvpn-easy-rsa / passwall2 的 Xray 核心）—— 否則「菜單在、點進去空的」。
 #   8. 第三方 feed：passwall2 / mosdns / ddns-go / webdav 官方 feed 都沒有，
 #      由 diy-pure-part1.sh 把 kenzok8 兩個 feed 追加進 feeds.conf.default。
 #      part1 之後斷言那兩行確實在，否則「必須 =y」清單會整批 MISS。
@@ -383,6 +385,13 @@ jobs:
         # 可以事后补装 —— 只能在编译期保证。
         # 第三方 feed 那四个（passwall2 / mosdns / ddns-go / webdav）如果 feed
         # 没拉下来，oldconfig 会把符号吃掉，这里就会 MISS 并直接失败。
+        #
+        # ⚠️ 2026-10-13 补：**同时断言 daemon，不只断言 LuCI 前端**。
+        #   luci-app-ddns-go 的 LUCI_DEPENDS 是 `+ddns-go`，luci-app-mosdns 是
+        #   `+mosdns +uclient-fetch +v2ray-geoip +v2ray-geosite +geo2txt +ucode`
+        #   （已从 kenzok8/small-package 的 Makefile 实查）。只断言前端的话，
+        #   万一依赖名写错或 feed 缺包，会出现「菜单在、点进去空的」——
+        #   前端装上了、daemon 没装上，而且这里一声不响。
         echo "==== 必须 =y 的包 ===="
         MISSING=""
         for sym in \
@@ -418,6 +427,11 @@ jobs:
           CONFIG_PACKAGE_luci-app-mosdns \
           CONFIG_PACKAGE_luci-app-ddns-go \
           CONFIG_PACKAGE_luci-app-webdav \
+          CONFIG_PACKAGE_ddns-go \
+          CONFIG_PACKAGE_mosdns \
+          CONFIG_PACKAGE_rpcd-mod-wireguard \
+          CONFIG_PACKAGE_openvpn-easy-rsa \
+          CONFIG_PACKAGE_luci-app-passwall2_Basic_Core_Xray \
         ; do
           if grep -q "^${sym}=y" .config; then
             echo "  [OK] $sym"
@@ -435,7 +449,7 @@ jobs:
           echo "::error title=wpad 没换::wpad-basic-mbedtls 仍为 =y，缺 802.11r/k/v 与 WPS"
           exit 1
         fi
-        echo "✅ 必需包齐全（fq 排程 / wpad-mbedtls / USB / VPN / passwall2 / samba4 / DDNS）"
+        echo "✅ 必需包齐全（37 项：fq 排程 / wpad-mbedtls / USB / VPN / passwall2 / samba4 / DDNS，含 daemon）"
         echo "========================================"
 
     # =========================================================
