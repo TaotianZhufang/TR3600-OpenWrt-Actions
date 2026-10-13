@@ -230,6 +230,58 @@ TCP 16 MB 緩衝區以前寫在 `package/base-files/files/etc/sysctl.conf`，但
 編譯守門會在 `oldconfig` 之後斷言這些套件仍為 `=y`，並確認
 `wpad-basic-mbedtls` 已被換成 `wpad-mbedtls`（前者缺 802.11r/k/v 快速漫遊與 WPS）。
 
+## 功能外掛：VPN / 組網 / 代理 / 下載 / 共享 / DDNS（2026-10-13 第二輪）
+
+| 需求 | 套件 | 來源 |
+|---|---|---|
+| zerotier | `zerotier` | 官方（⚠️ 只有命令列，**沒有 LuCI 頁**） |
+| wireguard | `kmod-wireguard` + `wireguard-tools` + `luci-proto-wireguard` | 官方 |
+| tailscale | `tailscale` + `luci-app-tailscale-community` | 官方 |
+| openvpn | `openvpn-openssl` + `luci-app-openvpn` + `openvpn-easy-rsa` | 官方 |
+| passwall2 | `luci-app-passwall2` | **第三方**（只編 Xray 核心） |
+| aria2 | `aria2` + `luci-app-aria2` | 官方 |
+| samba4 | `samba4-server` + `luci-app-samba4` | 官方 |
+| webdav | `luci-app-webdav` | **第三方** |
+| luci-app-ddns | `luci-app-ddns` + `ddns-scripts` | 官方 |
+| ddns-go | `luci-app-ddns-go` | **第三方** |
+| mosdns | `luci-app-mosdns` | **第三方** |
+
+### 第三方 feed
+
+`passwall2 / mosdns / ddns-go / webdav` 官方 feed 都沒有（實測 apk 索引 + 上游倉庫）。
+`diy-pure-part1.sh` 會把這兩個 feed 追加到 `feeds.conf.default`：
+
+```
+src-git kenzok8 https://github.com/kenzok8/openwrt-packages.git
+src-git small   https://github.com/kenzok8/small-package.git
+```
+
+用**單一來源**是刻意的：同一個套件被兩個 feed 重複定義會讓 `make defconfig` 直接報
+duplicate package。kenzok8 的聚合 feed 跟官方 feed 撞名的套件（例如 `aria2`），
+`scripts/feeds install -a` 會自己跳過並印 WARNING，那是預期行為。
+
+> ⚠️ 這是本建置線**唯一的外部依賴**。第三方 feed 會漂移 —— 舊的
+> `xiaorouji/openwrt-passwall2` 已經 404（搬到 `Openwrt-Passwall` 組織了），
+> 當年 `liangcanming/luci-app-tr3600-fan` 更是整個消失。退路：把 part1 裡那兩行
+> 註解掉，並在 config 把那四個 `luci-app-*` 改成 `not set`。
+
+### zerotier 沒有 LuCI 頁
+
+`luci-app-zerotier` 在 25.12 官方 feed 已不存在（`apk list --available | grep zerotier`
+只有 `zerotier-1.16.2-r1`；上游 `openwrt/luci` 也查不到）。用命令列：
+
+```sh
+uci set zerotier.global.enabled=1; uci commit zerotier
+/etc/init.d/zerotier start
+zerotier-cli join <network-id>
+```
+
+### dnsmasq → dnsmasq-full
+
+passwall2 的 nftables 透明代理 select `dnsmasq-full`。它與 `dnsmasq` 是**同一套件的
+不同 variant**（`PROVIDES:=dnsmasq`，不是 CONFLICTS），所以只是換版本，依賴
+`dnsmasq` 的套件照常滿足。多了 DNSSEC / DHCPv6 / ipset / nftset。
+
 ## 刷機前必讀
 
 > **不要刷 U-Boot。** 本機沒有可用的第三方 U-Boot（OpenWrt `uboot-mediatek` 無

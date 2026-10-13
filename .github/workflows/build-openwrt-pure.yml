@@ -47,9 +47,13 @@ name: Build Cudy TR3600 OpenWrt Pure
 #          **不能**放 /etc/sysctl.conf，那是 conffile，被 sysupgrade 保留會蓋掉新映像的。
 #      part1 之後先確認兩份檔案就位，編譯後再從 build_dir 的 staging rootfs 複查成品。
 #   7. oldconfig 之後斷言必需包仍為 =y：kmod-sched（sch_fq）、wpad-mbedtls（802.11r/k/v）、
-#      USB 儲存（usb-storage/-uas/fs-ext4/fs-exfat/block-mount）與 USB 網卡/共享
-#      （usb-net + rtl8152/ax88179/aqc111/rndis/cdc-ncm/ipheth），並確認
+#      USB 儲存/網卡/共享，以及第二輪加回來的 VPN / 代理 / 下載 / 共享 / DDNS
+#      （zerotier / tailscale / kmod-wireguard / openvpn / passwall2 / aria2 /
+#        samba4 / luci-app-ddns / mosdns / ddns-go / webdav），並確認
 #      wpad-basic-mbedtls 已被換掉。feed 裡沒有 kmod，事後補不了，只能編譯期保證。
+#   8. 第三方 feed：passwall2 / mosdns / ddns-go / webdav 官方 feed 都沒有，
+#      由 diy-pure-part1.sh 把 kenzok8 兩個 feed 追加進 feeds.conf.default。
+#      part1 之後斷言那兩行確實在，否則「必須 =y」清單會整批 MISS。
 # =============================================================================
 
 on:
@@ -154,8 +158,7 @@ jobs:
         # ---- TR3600 build kit guard: 风扇插件必须就位且可执行 ----
         # 这一步把「静默产出 0644 脚本 -> 上机后 exec_direct EACCES ->
         # LuCI 显示未检测到风扇」这个原始症状，提前变成编译期的硬失败。
-        FANPKG=package/custom/luci-app-tr3600-fan
-        if [ ! -f "$FANPKG/Makefile" ]; then
+        FANPKG=package/custom/luci-app-tr3600-fan        if [ ! -f "$FANPKG/Makefile" ]; then
           echo "::error title=风扇插件缺失::$FANPKG/Makefile 不存在，diy-pure-part1.sh 没装成功。"
           ls -la package/custom 2>/dev/null || true
           exit 1
@@ -191,6 +194,27 @@ jobs:
           exit 1
         fi
         echo "✅ 风扇页精简：只有 auto / manual，无季节机制"
+
+        # ---- 第三方 feed（passwall2 / mosdns / ddns-go / webdav）----
+        # 这四个官方 feed 都没有（实测 apk 索引 + 上游仓库都查不到）。
+        # diy-pure-part1.sh 会把 kenzok8 的两个 feed 追加到 feeds.conf.default。
+        # 少了它们，下一步 feeds install 找不到包，oldconfig 会把
+        # CONFIG_PACKAGE_luci-app-* 吃掉 —— 与其等到最后「必须 =y」清单报错，
+        # 不如在这里就说清楚原因。
+        FEEDSCONF=feeds.conf.default
+        if [ ! -f "$FEEDSCONF" ]; then
+          echo "::error title=找不到 feeds.conf.default::cwd 应该已经在 openwrt 根目录"; exit 1
+        fi
+        for f in 'kenzok8/openwrt-packages' 'kenzok8/small-package'; do
+          if grep -q "$f" "$FEEDSCONF"; then
+            echo "  [OK] 第三方 feed: $f"
+          else
+            echo "::error title=第三方 feed 缺失::feeds.conf.default 里没有 $f（passwall2/mosdns/ddns-go/webdav 会装不上）"
+            cat "$FEEDSCONF"
+            exit 1
+          fi
+        done
+        echo "✅ 第三方 feed 就位（passwall2 / mosdns / ddns-go / webdav）"
 
         # ---- 模块名：智能风扇（2026-10-13 改名） ----
         # menu.d 的 title 与页面 h2 用同一个字面量「智能风扇」，po 目录里也有
@@ -267,8 +291,31 @@ jobs:
     - name: Update & Install Feeds
       run: |
         cd openwrt
-        ./scripts/feeds update -a
+        # 第三方 feed（kenzok8 两个）是 diy-pure-part1.sh 追加进 feeds.conf.default 的。
+        # 网络抖动会让 feeds update 失败，所以重试 3 次再放弃。
+        ok=0
+        for i in 1 2 3; do
+          echo "--- feeds update -a (attempt $i) ---"
+          if ./scripts/feeds update -a; then ok=1; break; fi
+          sleep 15
+        done
+        if [ "$ok" != "1" ]; then
+          echo "::error title=feeds update 失败::第三方 feed 拉不下来（kenzok8/openwrt-packages 或 small-package）"
+          exit 1
+        fi
+        # install -a 会把所有 feed 的套件都 link 进 package/feeds/。
+        # kenzok8 的聚合 feed 跟官方 feed 有同名套件（例如 aria2），
+        # scripts/feeds 自己会跳过并印 WARNING —— 那是预期行为，不是错误。
         ./scripts/feeds install -a
+        echo "==== 第三方套件是否真的 link 进来了 ===="
+        for p in luci-app-passwall2 luci-app-mosdns luci-app-ddns-go luci-app-webdav; do
+          d=$(ls -d package/feeds/*/"$p" 2>/dev/null | head -1)
+          if [ -n "$d" ]; then
+            echo "  [OK] $p -> $d"
+          else
+            echo "::warning title=第三方套件没进 package/feeds::$p 找不到，oldconfig 会把它吃掉（最后「必须 =y」清单会失败）"
+          fi
+        done
 
     # =========================================================
     # 6. 执行 DIY 脚本 (diy-pure-part2.sh)
@@ -318,17 +365,22 @@ jobs:
         echo "==== fan config check ===="
         grep -E "luci-app-tr3600-fan|luci-theme-bootstrap|CONFIG_DEFAULT_THEME" .config
         echo "============================"
-        # 精简版：商店 / 科学上网 / 主题类插件一个都不该出现
+        # 精简版：商店 / 主题类插件一个都不该出现
+        # ⚠️ 2026-10-13 第二轮：passwall2 / mosdns / tailscale 已改为**要装**，
+        #    所以从「不该出现」名单里拿掉（它们由下面的「必须 =y」清单接管）。
         echo "==== 应为空（不该出现的插件）===="
-        grep -E "CONFIG_PACKAGE_(luci-app-store|luci-app-passwall|luci-app-passwall2|luci-app-openclash|luci-app-ssr-plus|luci-theme-argon|luci-theme-aurora|luci-theme-kucat|luci-app-mosdns|luci-app-smartdns|luci-app-openlist|luci-app-ttyd|luci-app-filemanager|luci-app-authshield)=y" .config \
-          && { echo "::error title=精简版混入插件::上面这些插件不该出现在精简版 config 里"; exit 1; } \
+        grep -E "CONFIG_PACKAGE_(luci-app-store|luci-app-passwall|luci-app-openclash|luci-app-ssr-plus|luci-theme-argon|luci-theme-aurora|luci-theme-kucat|luci-app-smartdns|luci-app-openlist|luci-app-ttyd|luci-app-filemanager|luci-app-authshield)=y" .config \
+          && { echo "::error title=混入非预期插件::上面这些插件不该出现在 config 里"; exit 1; } \
           || echo "OK: 没有混入非预期插件"
         echo "========================================"
 
         # ---- 必须存在的包（oldconfig 之后仍为 y）----
-        # 这些是 2026-10-13 补的：fq 排程、完整 wpad、USB 存储/网卡/共享。
+        # 这些是 2026-10-13 补的：fq 排程、完整 wpad、USB 存储/网卡/共享，
+        # 以及第二轮加回来的 VPN / 代理 / 下载 / 共享 / DDNS。
         # 少了任何一个都会在设备上表现为「功能不存在」，而且 feed 里没有 kmod
         # 可以事后补装 —— 只能在编译期保证。
+        # 第三方 feed 那四个（passwall2 / mosdns / ddns-go / webdav）如果 feed
+        # 没拉下来，oldconfig 会把符号吃掉，这里就会 MISS 并直接失败。
         echo "==== 必须 =y 的包 ===="
         MISSING=""
         for sym in \
@@ -346,6 +398,24 @@ jobs:
           CONFIG_PACKAGE_kmod-usb-net-rndis \
           CONFIG_PACKAGE_kmod-usb-net-cdc-ncm \
           CONFIG_PACKAGE_kmod-usb-net-ipheth \
+          CONFIG_PACKAGE_zerotier \
+          CONFIG_PACKAGE_tailscale \
+          CONFIG_PACKAGE_luci-app-tailscale-community \
+          CONFIG_PACKAGE_kmod-wireguard \
+          CONFIG_PACKAGE_wireguard-tools \
+          CONFIG_PACKAGE_luci-proto-wireguard \
+          CONFIG_PACKAGE_openvpn-openssl \
+          CONFIG_PACKAGE_luci-app-openvpn \
+          CONFIG_PACKAGE_aria2 \
+          CONFIG_PACKAGE_luci-app-aria2 \
+          CONFIG_PACKAGE_samba4-server \
+          CONFIG_PACKAGE_luci-app-samba4 \
+          CONFIG_PACKAGE_ddns-scripts \
+          CONFIG_PACKAGE_luci-app-ddns \
+          CONFIG_PACKAGE_luci-app-passwall2 \
+          CONFIG_PACKAGE_luci-app-mosdns \
+          CONFIG_PACKAGE_luci-app-ddns-go \
+          CONFIG_PACKAGE_luci-app-webdav \
         ; do
           if grep -q "^${sym}=y" .config; then
             echo "  [OK] $sym"
@@ -363,7 +433,7 @@ jobs:
           echo "::error title=wpad 没换::wpad-basic-mbedtls 仍为 =y，缺 802.11r/k/v 与 WPS"
           exit 1
         fi
-        echo "✅ 必需包齐全（fq 排程 / wpad-mbedtls / USB 存储+网卡+共享）"
+        echo "✅ 必需包齐全（fq 排程 / wpad-mbedtls / USB / VPN / passwall2 / samba4 / DDNS）"
         echo "========================================"
 
     # =========================================================

@@ -45,6 +45,49 @@ echo " TR3600 pure build: diy-pure-part1.sh"
 echo " repo root : $REPO_ROOT"
 echo "========================================================"
 
+# =========================================================
+# 第三方 feed（passwall2 / mosdns / ddns-go / webdav）
+# =========================================================
+# 這四個官方 feed 都沒有（實測：apk 索引 + 上游倉庫都查不到）：
+#   passwall2  ← 官方上游是 Openwrt-Passwall/openwrt-passwall2
+#                （⚠️ 舊的 xiaorouji/openwrt-passwall2 已經 404，倉庫搬到
+#                  Openwrt-Passwall 組織了）
+#   mosdns     ← sbwml/luci-app-mosdns
+#   ddns-go    ← sirpdboy/luci-app-ddns-go
+#   webdav     ← 只有聚合 feed 有
+#
+# 這裡用中文圈最通用的 kenzok8 兩個 feed（openwrt-packages + small-package），
+# 它們同時提供上面四個。用單一來源的理由：避免同一個套件被兩個 feed 重複
+# 定義 —— 那會讓 make defconfig 直接報 duplicate package。
+#
+# ⚠️ 這是本建置線唯一的外部依賴。kenzok8 很活躍（2026-10-13 當天還有更新），
+#    但第三方 feed 本質上會漂移 —— 之前 liangcanming 的風扇倉庫整個 404
+#    就是這個風險。退路：把下面追加的兩行註解掉，並在 config 裡把
+#    luci-app-passwall2 / -mosdns / -ddns-go / -webdav 改成 not set。
+FEEDS_CONF=feeds.conf.default
+if [ ! -f "$FEEDS_CONF" ]; then
+	echo "ERROR: 找不到 $FEEDS_CONF（cwd 應該在 openwrt 根目錄）"
+	exit 1
+fi
+
+if grep -q 'kenzok8/small-package' "$FEEDS_CONF"; then
+	echo "[tr3600-pure] 第三方 feed 已經在了，跳過"
+else
+	cat >> "$FEEDS_CONF" <<'EOF'
+
+# ---- TR3600 build: 第三方 feed（passwall2 / mosdns / ddns-go / webdav）----
+src-git kenzok8 https://github.com/kenzok8/openwrt-packages.git
+src-git small https://github.com/kenzok8/small-package.git
+EOF
+	echo "[tr3600-pure] 已追加第三方 feed: kenzok8/openwrt-packages + kenzok8/small-package"
+fi
+
+if ! grep -q 'kenzok8/openwrt-packages' "$FEEDS_CONF"; then
+	echo "ERROR: feeds.conf.default 沒有寫入第三方 feed"
+	exit 1
+fi
+echo "[tr3600-pure] feeds.conf.default 第三方 feed 就位"
+
 mkdir -p package/custom
 
 # =========================================================
