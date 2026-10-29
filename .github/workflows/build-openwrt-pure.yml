@@ -423,7 +423,7 @@ jobs:
           CONFIG_PACKAGE_luci-app-samba4 \
           CONFIG_PACKAGE_ddns-scripts \
           CONFIG_PACKAGE_luci-app-ddns \
-          CONFIG_PACKAGE_luci-app-passwall2 \
+        # CONFIG_PACKAGE_luci-app-passwall2 \  # 体积控制：已移除
           CONFIG_PACKAGE_luci-app-mosdns \
           CONFIG_PACKAGE_luci-app-ddns-go \
           CONFIG_PACKAGE_luci-app-webdav \
@@ -431,7 +431,7 @@ jobs:
           CONFIG_PACKAGE_mosdns \
           CONFIG_PACKAGE_rpcd-mod-wireguard \
           CONFIG_PACKAGE_openvpn-easy-rsa \
-          CONFIG_PACKAGE_luci-app-passwall2_Basic_Core_Xray \
+        # CONFIG_PACKAGE_luci-app-passwall2_Basic_Core_Xray \  # 体积控制：已移除
         ; do
           if grep -q "^${sym}=y" .config; then
             echo "  [OK] $sym"
@@ -770,72 +770,76 @@ jobs:
         cat <<EOF > release.txt
         ## Cudy TR3600 v1 — TR3600-Unclamp 1.0（OpenWrt 25.12）
 
-        **固件号**：\`${FIRMWARE_NO}\` ｜ **编译时间**：$(date '+%Y-%m-%d %H:%M:%S') (Asia/Shanghai)
-        **构建基底**：\`openwrt-25.12\` + Cudy TR3600 v1 板级支持 ｜ **配置文件**：\`${{ env.CONFIG_FILE }}\`
-        **主題**：OpenWrt 原生 **bootstrap**（LuCI 中文界面）
+        **固件号**：`${FIRMWARE_NO}` ｜ **编译时间**：$(date '+%Y-%m-%d %H:%M:%S') (Asia/Shanghai)
+        **构建基底**：`openwrt-25.12` + Cudy TR3600 v1 板级支持 ｜ **配置文件**：`${{ env.CONFIG_FILE }}`
+        **主题**：OpenWrt 原生 **bootstrap**（LuCI 中文界面）
 
-        ### 📦 內含外掛
+        **核心修复**：MT7990 的 SDO TX 路径损坏，导致 AP→客户端发送速率被钳制在 6 Mbit/s（下行约 80 Mbps、上行正常）。本版改由 host 填充 TXD（`0300-mt7996-mt7990-host-fill-txd.patch`）绕过该路径；另修正 `wifi reload` 后客户端无法重连（STA_REC 先于 VoW）。
 
-        | 類別 | 套件 |
+        ### 📦 内置插件
+
+        | 类别 | 套件 |
         |------|------|
-        | 風扇 | **TR3600 智能風扇**（內建於 \`vendor/\`，不依賴第三方倉庫） |
-        | VPN / 組網 | ZeroTier、Tailscale、WireGuard、OpenVPN |
-        | 代理 | PassWall2（**只編 Xray 核心**）＋ dnsmasq-full |
-        | DNS | mosdns、DDNS（\`luci-app-ddns\`）、ddns-go |
-        | 下載 | aria2 |
+        | 风扇 | **TR3600 智能风扇**（内置于 `vendor/`，不依赖第三方仓库） |
+        | VPN / 组网 | ZeroTier、Tailscale、WireGuard、OpenVPN |
+        | 代理 | 本版**未内置**（为保证镜像不超过 59.9MB 的 rootfs，已移除 PassWall2 / Xray / geo 数据）；需要时用 apk 安装或用 OpenClash |
+        | DNS | mosdns、DDNS（`luci-app-ddns`）、ddns-go |
+        | 下载 | aria2 |
         | 共享 | Samba4、WebDAV |
-        | USB | 儲存（ext4 / exfat / ntfs3 + block-mount）、約 11 種網卡晶片、手機共享（RNDIS / NCM / EEM）、WWAN（QMI / MBIM）、4 種 USB 序列埠 |
-        | 無線 | \`wpad-mbedtls\`（含 **802.11r/k/v 快速漫遊** 與 WPS） |
+        | USB | 存储（ext4 / exfat / ntfs3 + block-mount）、约 11 种网卡芯片、手机共享（RNDIS / NCM / EEM）、WWAN（QMI / MBIM）、4 种 USB 串口 |
+        | 工具 | **ttyd 网页终端**、**USB 管理页**（状态 → USB 状态／系统 → USB 管理）、usbutils(lsusb)、pciutils(lspci)、ethtool、iperf3、tcpdump |
+        | 无线 | `wpad-mbedtls`（含 **802.11r/k/v 快速漫游** 与 WPS） |
 
-        > **刻意沒裝**：iStore 商店、OpenClash、SSR+、smartdns、第三方主題
-        > （Argon / Aurora / Kucat）、工具類外掛（ttyd / filemanager / authshield）。
-        > 要加請自行用 \`apk\` 或 LuCI 的「軟體套件」頁安裝。
+        > **刻意未装**：iStore 商店、OpenClash、SSR+、smartdns、第三方主题
+        > （Argon / Aurora / Kucat）、filemanager / authshield。
+        > **已内置**：ttyd 网页终端、USB 管理页、离线诊断工具（lsusb / lspci / ethtool / iperf3 / tcpdump）。
+        > 要加请自行用 `apk` 或 LuCI 的「软件包」页面安装。
 
-        > ⚠️ **ZeroTier 只有 CLI，沒有 LuCI 介面** —— 上游 \`luci-app-zerotier\`
-        > 已不存在（2026-10-13 實測）。請用 \`zerotier-cli\` 或 UCI 設定。
-        > 其餘外掛在 LuCI 裡都有頁面。
+        > ⚠️ **ZeroTier 只有 CLI，没有 LuCI 界面** —— 上游 `luci-app-zerotier`
+        > 已不存在（2026-10-13 实测）。请用 `zerotier-cli` 或 UCI 配置。
+        > 其余插件在 LuCI 里都有页面。
 
-        ### ⚡ 性能優化
+        ### ⚡ 性能优化
 
-        > 這些全部由 \`/etc/sysctl.d/99-tr3600-pure.conf\` 交付（**不是** \`/etc/sysctl.conf\`
-        > —— 那是 conffile，sysupgrade 會保留舊的、蓋掉新映像的設定）。
+        > 这些全部由 `/etc/sysctl.d/99-tr3600-pure.conf` 交付（**不是** `/etc/sysctl.conf`
+        > —— 那是 conffile，sysupgrade 会保留旧的、覆盖新镜像的设置）。
 
-        - ✅ **BBR + fq**：\`net.ipv4.tcp_congestion_control=bbr\`、\`net.core.default_qdisc=fq\`
-        - ✅ **TCP 緩衝區**：rmem/wmem 上限 16 MB（2.5G WAN 高頻寬下不卡吞吐）
-        - ✅ **硬體流量卸載（HWNAT）**：\`flow_offloading\` + \`flow_offloading_hw\` 預設開啟，
-          轉發幾乎不吃 CPU（要用 SQM 記得關掉）
-        - ✅ **WED 無線卸載**：\`CONFIG_WED_HW_RRO_SUPPORT=y\`
-        - ✅ **zram**：壓縮記憶體當 swap，記憶體吃緊時不 OOM
+        - ✅ **BBR + fq**：`net.ipv4.tcp_congestion_control=bbr`、`net.core.default_qdisc=fq`
+        - ✅ **TCP 缓冲**：rmem/wmem 上限 16 MB（2.5G WAN 高带宽下不卡吞吐）
+        - ✅ **硬件流量卸载（HWNAT）**：`flow_offloading` + `flow_offloading_hw` 默认开启，
+          转发几乎不吃 CPU（要用 SQM 记得关掉）
+        - ✅ **WED 无线卸载**：`CONFIG_WED_HW_RRO_SUPPORT=y`
+        - ✅ **zram**：压缩内存当 swap，内存吃紧时不 OOM
 
-        ### 🔧 板級修正
-        - ✅ **風扇 PWM**：DTS 由 PWM 通道 1 → **通道 0**（\`pwms = <&pwm 0 50000 0>\`），
-          \`pinctrl-0\` 改為 \`pwm_pins\`，風扇測得到、可調速
-        - ✅ **風扇腳本權限**：\`/usr/sbin/tr3600-fan\`、\`/etc/init.d/tr3600-fan\` 由 0644 → 0755
-          （否則 \`exec_direct\` EACCES，LuCI 顯示「未檢測到風扇」）
-        - ✅ **風扇曲線調校**：待機 **停轉**，68 / 78 / 88 °C 三段 50 % / 78 % / 100 %
-          （原本 65 °C 那段的 25 % 實測完全沒有降溫效果，已改成有效的 50 %）
-        - ✅ **LED 顏色**：\`led-0\` = **白**@GPIO48、\`led-1\` = **紅**@GPIO46（本板**無藍燈**）
-        - ✅ **WiFi MAC**：2.4 GHz = **base+0x00**、5 GHz = **base+0x10**（與廠商一致）
-        - ✅ **無線**：mt76 \`mt7996_mcu_add_sta()\` 改為先送 STA_REC、後送 VoW/DRR
-          （修正 \`wifi down/up\` 後客戶端再也連不上的問題）
-        - ✅ **風扇插件已內建**於倉庫 \`vendor/luci-app-tr3600-fan\`，不依賴第三方倉庫
+        ### 🔧 板级修正
+        - ✅ **风扇 PWM**：DTS 由 PWM 通道 1 → **通道 0**（`pwms = <&pwm 0 50000 0>`），
+          `pinctrl-0` 改为 `pwm_pins`，风扇可测、可调速
+        - ✅ **风扇脚本权限**：`/usr/sbin/tr3600-fan`、`/etc/init.d/tr3600-fan` 由 0644 → 0755
+          （否则 `exec_direct` EACCES，LuCI 显示「未检测到风扇」）
+        - ✅ **风扇曲线调校**：待机 **停转**，68 / 78 / 88 °C 三段 50 % / 78 % / 100 %
+          （原 65 °C 那段的 25 % 实测完全没有降温效果，已改成有效的 50 %）
+        - ✅ **LED 颜色**：`led-0` = **白**@GPIO48、`led-1` = **红**@GPIO46（本板**无蓝灯**）
+        - ✅ **WiFi MAC**：2.4 GHz = **base+0x00**、5 GHz = **base+0x10**（与厂商一致）
+        - ✅ **无线**：mt76 `mt7996_mcu_add_sta()` 改为先发 STA_REC、后发 VoW/DRR
+          （修正 `wifi down/up` 后客户端再也连不上的问题）
+        - ✅ **风扇插件已内置**于仓库 `vendor/luci-app-tr3600-fan`，不依赖第三方仓库
 
-        ### 📥 刷機
+        ### 📥 刷机
 
         | 文件 | 用途 |
         |------|------|
-        | ✅ \`openwrt-mediatek-filogic-cudy_tr3600-v1-squashfs-sysupgrade.bin\` | **要刷的就是这个** |
-        | 🧯 \`openwrt-mediatek-filogic-cudy_tr3600-v1-initramfs-kernel.bin\` | 救援 / 救砖用（内存启动） |
-        | 📄 \`openwrt-mediatek-filogic.manifest\` | 套件清单，**不是固件，不要刷** |
+        | ✅ `openwrt-mediatek-filogic-cudy_tr3600-v1-squashfs-sysupgrade.bin` | **要刷的就是这个** |
+        | 🧯 `openwrt-mediatek-filogic-cudy_tr3600-v1-initramfs-kernel.bin` | 救援 / 救砖用（内存启动） |
+        | 📄 `openwrt-mediatek-filogic.manifest` | 套件清单，**不是固件，不要刷** |
 
-        1. 下载上面那个 \`…cudy_tr3600-v1-squashfs-sysupgrade.bin\`
+        1. 下载上面那个 `…cudy_tr3600-v1-squashfs-sysupgrade.bin`
         2. 通过 Cudy 过渡中间固件后 WEB 网页后台或 U-Boot 刷入
-        3. 默认 IP \`192.168.1.1\`、默认密码 \`password\`
-        4. 刷完進 LuCI 會看到 **bootstrap** 主題（OpenWrt 原生）
+        3. 默认 IP `192.168.1.1`、默认密码 `password`
+        4. 刷完进 LuCI 会看到 **bootstrap** 主题（OpenWrt 原生）
 
         > ⚠️ **本 Release 只包含 TR3600 自己的两个映像 + manifest。**
-        > 早期版本会误把 \`mt7981-ram-*-bl2.bin\`、\`mt7986-ram-*-bl2.bin\`、
-        > \`mt7987-ram-comb-bl2.bin\`、\`mt7988-ram-*-bl2.bin\` 一起挂上来 ——
+        > 早期版本会误把 `mt7981-ram-*-bl2.bin`、`mt7986-ram-*-bl2.bin`、
+        > `mt7987-ram-comb-bl2.bin`、`mt7988-ram-*-bl2.bin` 一起挂上来 ——
         > 那些是**别颗芯片**的 BL2 RAM loader，刷进 TR3600 会**直接变砖**。
         > 如果你在旧 Release 里看到它们，**绝对不要碰**。
 
@@ -854,7 +858,7 @@ jobs:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
         tag_name: ${{ steps.tag.outputs.release_tag }}
-        name: ${{ env.DEVICE_MODEL }} OpenWrt Pure 功能性能版 - ${{ env.BUILD_TIMESTAMP }}
+        name: ${{ env.DEVICE_MODEL }} TR3600-Unclamp - ${{ env.BUILD_TIMESTAMP }}
         body_path: release.txt
         # 只發佈 Organize 步驟挑出來的白名單檔案。
         files: |
