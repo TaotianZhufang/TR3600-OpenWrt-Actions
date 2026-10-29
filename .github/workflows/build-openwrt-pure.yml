@@ -423,7 +423,6 @@ jobs:
           CONFIG_PACKAGE_luci-app-samba4 \
           CONFIG_PACKAGE_ddns-scripts \
           CONFIG_PACKAGE_luci-app-ddns \
-        # CONFIG_PACKAGE_luci-app-passwall2 \  # 体积控制：已移除
           CONFIG_PACKAGE_luci-app-mosdns \
           CONFIG_PACKAGE_luci-app-ddns-go \
           CONFIG_PACKAGE_luci-app-webdav \
@@ -431,7 +430,6 @@ jobs:
           CONFIG_PACKAGE_mosdns \
           CONFIG_PACKAGE_rpcd-mod-wireguard \
           CONFIG_PACKAGE_openvpn-easy-rsa \
-        # CONFIG_PACKAGE_luci-app-passwall2_Basic_Core_Xray \  # 体积控制：已移除
         ; do
           if grep -q "^${sym}=y" .config; then
             echo "  [OK] $sym"
