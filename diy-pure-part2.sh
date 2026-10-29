@@ -6,7 +6,7 @@
 #              純淨基礎 + 性能優化版
 #
 # 這個腳本做三件事：
-#   1. 預設 IP / 語言 / 主題（bootstrap，OpenWrt 原生）
+#   1. 預設 IP / 語言 / 主題（Argon 3.1.1，vendor 內建）
 #   2. 板級 DTS 修正 0001 / 0004 / 0005 / 0006 / 0007（風扇 + LED + WiFi MAC）
 #   3. mt76 backport 0002（STA_REC 先於 VoW，修 wifi down/up 後連不上）
 #   ＋ uci-defaults 兜底（語言 / 主題 / HWNAT 硬體流量卸載）
@@ -48,6 +48,23 @@ echo " patch dir : $PATCHDIR"
 echo "========================================================"
 
 # =========================================================
+# 0b. 跨 feed 重名去重：2026-10-30 随 iStore 一起移除
+#     （luci-app-store / taskd / xterm 不再进镜像，不需要处理重名）
+# =========================================================
+
+# =========================================================
+# 0a. 移除 feed 里的同名 Argon 主题（我们用 vendor 版本）
+#     kenzok8 feed 也带 luci-theme-argon；feeds install -a 会把它 link 进
+#     package/feeds/，与 package/custom/luci-theme-argon 重名 → 构建直接报
+#     duplicate package。这里在编译前删掉 feed 的那份。
+# =========================================================
+for d in package/feeds/*/luci-theme-argon; do
+	if [ -e "$d" ]; then
+		rm -rf "$d"
+		echo "[tr3600-unclamp] 已移除 feed 同名主题: $d"
+	fi
+done
+# =========================================================
 # 0. 確保 files/ overlay 內的可執行檔有 +x
 #    （用 GitHub 網頁上傳時 git 會丟掉執行位，uci-defaults 不執行就白搭）
 # =========================================================
@@ -69,14 +86,14 @@ if grep -q '192.168.6.1' package/base-files/files/bin/config_generate 2>/dev/nul
 	sed -i 's/192.168.6.1/192.168.1.1/g' package/base-files/files/bin/config_generate
 fi
 
-# 主題：OpenWrt 原生 bootstrap。
-# config 裡已經有 CONFIG_DEFAULT_THEME=bootstrap + CONFIG_PACKAGE_default-settings，
+# 主題：Argon 3.1.1（vendor 內建）。
+# config 裡已經有 CONFIG_DEFAULT_THEME=Argon + CONFIG_PACKAGE_default-settings，
 # 這裡再放一份 uci-defaults 兜底。注意 openwrt-25.12 的 base-files 已經沒有
 # etc/config/luci，對它 sed 會在 `set -e` 下直接打死編譯，所以一定要先判斷。
 LUCI_CFG=package/base-files/files/etc/config/luci
 if [ -f "$LUCI_CFG" ]; then
-	sed -i 's/luci.main.theme=argon/luci.main.theme=bootstrap/' "$LUCI_CFG"
-	echo "[tr3600-pure] patched $LUCI_CFG -> bootstrap"
+	sed -i 's/luci.main.theme=bootstrap/luci.main.theme=Argon/' "$LUCI_CFG"
+	echo "[tr3600-pure] patched $LUCI_CFG -> Argon"
 else
 	echo "[tr3600-pure] $LUCI_CFG 不存在（openwrt-25.12 已移除），改用 uci-defaults"
 fi
@@ -96,16 +113,31 @@ fi
 # =========================================================
 # 3. uci-defaults：語言 / 主題 / 硬體流量卸載
 # =========================================================
-THEME_UCI=package/base-files/files/etc/uci-defaults/99-tr3600-pure-defaults
+# zz- 前缀：确保最后执行 —— 万一上游 default-settings 也写 luci.main.mediaurlbase，
+# 我们的选择必须赢。
+THEME_UCI=package/base-files/files/etc/uci-defaults/zz-tr3600-pure-defaults
 mkdir -p "$(dirname "$THEME_UCI")"
 cat > "$THEME_UCI" <<'EOS'
 #!/bin/sh
 # TR3600 pure build: 首次開機預設值 + 性能優化
 # 這個檔案由 /etc/init.d/boot 執行一次，成功後會自我刪除。
 
-# --- LuCI 預設語言 / 主題（OpenWrt 原生 bootstrap）---
+# --- LuCI 預設語言 / 主題（Argon 3.1.1）---
 uci -q set luci.main.lang='zh_cn'
-uci -q set luci.main.theme='bootstrap'
+# ⚠️ luci-base 25.12 的 dispatcher 只認 mediaurlbase，主題名 = basename(mediaurlbase)：
+#      let media = uci.get('luci','main','mediaurlbase');
+#      trycompile('themes/' + basename(media) + '/header')
+#   它**不讀** luci.main.theme（實查 luci-base 的 ucode）。所以要切主題必須寫
+#   mediaurlbase；theme 只是給舊版/其他工具看的，一起寫不衝突。
+#   兜底：Argon 沒進 rootfs 就回 bootstrap —— 否則 mediaurlbase 指向不存在的
+#   模板，LuCI 得靠 luci.themes 的 fallback 才救得回來。
+if [ -f /www/luci-static/argon/css/cascade.css ]; then
+	uci -q set luci.main.theme='Argon'
+	uci -q set luci.main.mediaurlbase='/luci-static/argon'
+else
+	uci -q set luci.main.theme='bootstrap'
+	uci -q set luci.main.mediaurlbase='/luci-static/bootstrap'
+fi
 uci -q commit luci
 
 # --- 硬體流量卸載（HWNAT）---

@@ -23,6 +23,17 @@
 - 本套件在其基础上做了修改：加入 0300 补丁、ttyd、USB 页面、版本标识、默认网段。
 - 公开发布前建议：保留作者署名与原仓库链接；最好先向作者确认可否复用。
 
+## 3b. Argon 主题（vendor/）
+- 来源：https://github.com/jerrykuku/luci-theme-argon （v3.1.1，2026-10 版本）
+- 许可：Apache-2.0 / MIT（见 vendor/luci-theme-argon/LICENSE）
+- 本套件未改主题代码，只改了两处构建相关：
+  1. Makefile 去掉遗留的 `+coreutils` 父包依赖（25.12 已无此 meta/menu 包，
+     保留 `+coreutils-timeout`，主题的更新检查需要 `timeout`）；
+  2. uci-defaults 增加可执行位，并把「Argon 没进 rootfs 就回退 bootstrap」写进
+     本套件自己的 zz-tr3600-pure-defaults（zz- 前缀保证最后执行）。
+- 主题自带的「检查更新 / 在线壁纸」会访问 GitHub / Bing / Unsplash / Wallhaven，
+  可自行在 Argon 设置页关闭。
+
 ## 4. USB 管理页面
 - files/usr/libexec/rpcd/tr3600.usb、files/usr/share/luci/... 与 files/www/...
   来自 https://github.com/EDBWDY/cudy-tr3600-openwrt 的 luci-app-tr3600-usb 包
@@ -35,5 +46,6 @@
 - 本套件不包含 OpenClash / mihomo / AdGuard 等第三方二进制。
 
 ## 6. 本套件新增部分
-- TR3600-Unclamp 的集成改动（0300 补丁接入、ttyd、USB 菜单、默认 IP、版本标识）
+- TR3600-Unclamp 的集成改动（0300 补丁接入、ttyd、USB 菜单、默认 IP、版本标识、
+  Argon 集成与升级锁）
   可按 GPL-2.0 使用与再分发，但需保留上述所有上游署名。

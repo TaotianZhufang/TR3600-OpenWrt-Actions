@@ -1,8 +1,8 @@
 #!/bin/sh
 # TR3600-Unclamp: 阻止破坏系统一致性的在线升级
-# 本固件的内核(6.12.94) / mt76(39c960c3) / 板级补丁是同一批编译的配套，
-# 在线升级 kmod 会造成 ABI 不匹配（invalid module format），
-# 升级 mt76 会让 MT7990 host-fill 修复失效（下行回到 ~80 Mbps）。
+# 内核(6.12.94)/mt76(39c960c3)/板级补丁是同一批编译的配套：
+#  - 在线升级 kmod -> ABI 不匹配（invalid module format）
+#  - 升级 mt76 -> MT7990 host-fill 修复失效（下行回 ~80 Mbps）
 REAL=/usr/bin/apk
 LOCK=/etc/apk-allow-unsafe
 
@@ -19,7 +19,7 @@ blocked() {
 sub=""
 for a in "$@"; do
 	case "$a" in
-		-*) continue ;;
+		-*) ;;
 		*) sub="$a"; break ;;
 	esac
 done
@@ -31,6 +31,9 @@ case "$sub" in
 	add)
 		for a in "$@"; do
 			case "$a" in
+				--upgrade|-u)
+					[ -e "$LOCK" ] || blocked "禁止带升级标志安装（apk add $a）"
+					;;
 				kmod-*|kernel|kernel-*|base-files|libc|libgcc*|libstdc*|mt76*|wpad*|luci-base|apk-tools|apk-mbedtls)
 					[ -e "$LOCK" ] || blocked "禁止安装系统包：$a"
 					;;

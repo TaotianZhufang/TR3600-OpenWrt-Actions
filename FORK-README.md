@@ -19,7 +19,7 @@
 ## 注意
 
 - 本套件**内置**离线诊断工具：usbutils(lsusb)、pciutils(lspci)、ethtool、iperf3、tcpdump
-- 不含 OpenClash / iStore / ttyd（体积大，需联网或用本地 apk 装）
+- 不含 OpenClash / iStore（ttyd 已在本仓库的 Unclamp 版内置）
 - 默认 IP 192.168.1.1/24（DHCP 池 192.168.1.100-249），密码 password
 - 刷机有风险，确保有 TFTP 救砖手段（PC 192.168.1.88 / 路由 192.168.1.112 / 端口 3777）
 

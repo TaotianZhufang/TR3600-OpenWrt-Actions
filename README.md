@@ -9,7 +9,7 @@ Cudy TR3600 v1（MT7987B + MT7990，Wi-Fi 7 双频 BE3600）的 OpenWrt 自建�
 | 项 | 值 |
 |---|---|
 | 固件名 | **TR3600-Unclamp 1.0** |
-| 固件标识 | `DISTRIB_DESCRIPTION="TR3600-Unclamp 1.0 r0-046aec0"` |
+| 固件标识 | `DISTRIB_DESCRIPTION="TR3600-Unclamp 1.0"`（`DISTRIB_REVISION="r0-046aec0"`） |
 | 构建基底 | `openwrt-25.12` + Cudy TR3600 v1 板级支持（上游 PR #24596，尚未合入） |
 | 源码 HEAD | `soapmancn/openwrt` @ `agent/cudy-tr3600-v1-6.12`（钉在 `046aec0d`） |
 | 内核 | 6.12.94 |
@@ -41,9 +41,11 @@ Cudy TR3600 v1（MT7987B + MT7990，Wi-Fi 7 双频 BE3600）的 OpenWrt 自建�
 | 类别 | 内容 |
 |---|---|
 | 风扇 | TR3600 智能风扇（`vendor/`，不依赖第三方仓库） |
+| 主题 | **Argon 3.1.1**（`vendor/` 内置，含 argon-config 页面） |
 | VPN / 组网 | ZeroTier、Tailscale、WireGuard、OpenVPN |
 | DNS | mosdns、DDNS（`luci-app-ddns`）、ddns-go |
 | 下载 | aria2 |
+| 商店 | **未内置**（iStore 要第三方 feed + Go 后台，评估后不装；用 LuCI「软件包」页） |
 | 共享 | Samba4、WebDAV |
 | USB | 存储（ext4/exfat/ntfs3 + block-mount）、约 11 种网卡芯片、手机共享（RNDIS/NCM/EEM）、WWAN（QMI/MBIM）、USB 串口 |
 | 工具 | **ttyd 网页终端**、**USB 管理页**（状态→USB 状态；系统→USB 管理）、usbutils(lsusb)、pciutils(lspci)、ethtool、iperf3、tcpdump |
@@ -51,20 +53,31 @@ Cudy TR3600 v1（MT7987B + MT7990，Wi-Fi 7 双频 BE3600）的 OpenWrt 自建�
 
 ### 为控制体积而移除
 
-设备 `rootfs` 卷只有 **59.9 MB**，可用空间仅 2.5 MB，因此本版：
+设备 squashfs `rootfs` 卷只有 **59.9 MB**（另有 140 MB 的 `rootfs_data`，那是
+可写数据区，不能用来装系统文件），因此本版：
 
-- **未内置 PassWall2 / Xray / v2ray-geoip / v2ray-geosite / v2ray-plugin / geoview**
-  （未压缩约 90 MB，压缩后约 25 MB）。需要代理可自行 `apk` 安装，或改用 OpenClash 方案。
-- 未内置 iStore、SSR+、smartdns、第三方主题（Argon/Aurora/Kucat）、filemanager、authshield。
+- **未内置 PassWall2 / Xray 核心 / v2ray-plugin / geoview**（Xray 约 10 MB）。
+  注意：mosdns 的前端依赖会**自动选中 v2ray-geoip / v2ray-geosite**（约 15 MB
+  未压缩），这两项在 config 里关不掉 —— 只有不装 mosdns 才能省。
+- 官方软件源不含 PassWall2 这些包，需要时请自行添加第三方源；
+  不要照抄「`apk add luci-app-passwall2`」。
+- 未内置 SSR+、smartdns、第三方主题（Aurora/Kucat）、filemanager、authshield。
 
 ## 在线升级保护（重要）
 
 本固件的内核 6.12.94、mt76 39c960c3 与板级补丁是同一批编译的配套，**不要在线升级**：
 
-- `apk upgrade`、LuCI「软件包」页的升级、iStore 更新都可能把 kmod 换成与内核不匹配的版本，
+- `apk upgrade`、LuCI「软件包」页的升级都可能把 kmod 换成与内核不匹配的版本，
   或把 mt76 换成没有 host-fill 修复的版本（MT7990 下行会回落到约 80 Mbps）；
 - 一般 `apk add`（非内核相关包）不受影响；
 - 安装 `kmod-*`、`kernel*`、`base-files`、`mt76*`、`wpad*` 会被拦截。
+
+⚠️ 锁的边界（别把它当成万无一失）：
+
+- 拦截是按**命令行里的包名**做的；直接调用 `/usr/bin/apk`、或让第三方商店自己
+  执行更新，仍可能绕过 —— 所以别在商店里点「全部更新」。
+- 官方源**没有内核模块**（kmod 只在固件里），所以普通插件即使依赖 kmod 也装不上，
+  不会悄悄换掉内核模块。
 
 已内置两道锁：
 
@@ -88,7 +101,13 @@ Cudy TR3600 v1（MT7987B + MT7990，Wi-Fi 7 双频 BE3600）的 OpenWrt 自建�
 
 1. fork 本仓库（或直接使用）
 2. Actions → **Build TR3600-Unclamp (Cudy TR3600 v1)** → Run workflow
-3. 约 1.5~3 小时，产物在 Release / Artifacts
+3. 约 1.5~3 小时，产物在 Release / Artifacts —— **先发 pre-release**，设备实测
+   通过后手动取消 Pre-release 勾选才转正式版（`gh release edit <tag> --prerelease=false --latest`）
+
+**可复现性**：每次 Release 的「构建源」会写明 `openwrt` / `kenzok8` / `small` 的
+commit。想重跑出同一份，把这三个 SHA 填进 workflow 的 `REPO_COMMIT_FULL` /
+`KENZOK8_SHA` / `SMALL_SHA`；再把 `STRICT_SOURCE` 设为 `true` —— 源码没钉住
+就**直接失败**，而不是只 warning。留空则跟上游 HEAD：只能记录，不能保证一致。
 
 关键日志（都出现才算走对）：
 
@@ -109,7 +128,8 @@ ssh root@192.168.1.1 "sha256sum /tmp/fw.bin"      # 与 release 的 sha256sums �
 ssh root@192.168.1.1 "sysupgrade -n /tmp/fw.bin"  # -n：不保留配置
 ```
 
-⚠️ 刷前确认 `root` 分区大小 < 59.9 MB（本版目标约 40 MB）。
+⚠️ 刷前确认 squashfs `root` 分区 < **59.9 MB**（上一版 45.6 MB；本版只加 Argon
+主题，iStore 已移除，预计 ~47 MB，余量充足）。超过就只能砍包重编。
 
 救砖：TFTP（电脑 192.168.1.88/24，路由 192.168.1.112，端口 3777，按住 reset 8~10 秒）。
 
@@ -118,7 +138,7 @@ ssh root@192.168.1.1 "sysupgrade -n /tmp/fw.bin"  # -n：不保留配置
 ```
 patches/            板级补丁 0001-0007 + mt76 补丁 0002 / 0300
 files/              rootfs overlay（默认网段、USB 管理页、apk 源、sysctl）
-vendor/             内置 LuCI 风扇插件
+vendor/             内置 LuCI 风扇插件 + Argon 3.1.1 主题
 diy-pure-part1.sh   复制 files/、加第三方 feed
 diy-pure-part2.sh   打补丁、装风扇插件、设置默认值
 mt7987-cudy-tr3600-pure.config   构建配置

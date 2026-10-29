@@ -46,15 +46,14 @@ echo " repo root : $REPO_ROOT"
 echo "========================================================"
 
 # =========================================================
-# 第三方 feed（passwall2 / mosdns / ddns-go / webdav）
+# 第三方 feed（mosdns / ddns-go / webdav）
 # =========================================================
-# 這四個官方 feed 都沒有（實測：apk 索引 + 上游倉庫都查不到）：
-#   passwall2  ← 官方上游是 Openwrt-Passwall/openwrt-passwall2
-#                （⚠️ 舊的 xiaorouji/openwrt-passwall2 已經 404，倉庫搬到
-#                  Openwrt-Passwall 組織了）
+# 這幾個官方 feed 都沒有（實測：apk 索引 + 上游倉庫都查不到）：
 #   mosdns     ← sbwml/luci-app-mosdns
 #   ddns-go    ← sirpdboy/luci-app-ddns-go
 #   webdav     ← 只有聚合 feed 有
+#   （passwall2 / iStore 也在 kenzok8，但本版都不裝：rootfs 只有 59.9 MB，
+#     而且 iStore 自己執 apk 會繞過升級鎖。）
 #
 # 這裡用中文圈最通用的 kenzok8 兩個 feed（openwrt-packages + small-package），
 # 它們同時提供上面四個。用單一來源的理由：避免同一個套件被兩個 feed 重複
@@ -63,7 +62,7 @@ echo "========================================================"
 # ⚠️ 這是本建置線唯一的外部依賴。kenzok8 很活躍（2026-10-13 當天還有更新），
 #    但第三方 feed 本質上會漂移 —— 之前 liangcanming 的風扇倉庫整個 404
 #    就是這個風險。退路：把下面追加的兩行註解掉，並在 config 裡把
-#    luci-app-passwall2 / -mosdns / -ddns-go / -webdav 改成 not set。
+#    luci-app-mosdns / -ddns-go / -webdav 改成 not set。
 FEEDS_CONF=feeds.conf.default
 if [ ! -f "$FEEDS_CONF" ]; then
 	echo "ERROR: 找不到 $FEEDS_CONF（cwd 應該在 openwrt 根目錄）"
@@ -73,11 +72,17 @@ fi
 if grep -q 'kenzok8/small-package' "$FEEDS_CONF"; then
 	echo "[tr3600-pure] 第三方 feed 已經在了，跳過"
 else
-	cat >> "$FEEDS_CONF" <<'EOF'
+	# 可选：钉在固定 commit（feeds.conf 语法：url^<sha>）。留空则跟上游 HEAD。
+	KENZOK8_URL="https://github.com/kenzok8/openwrt-packages.git"
+	SMALL_URL="https://github.com/kenzok8/small-package.git"
+	if [ -n "${KENZOK8_SHA:-}" ]; then KENZOK8_URL="${KENZOK8_URL}^${KENZOK8_SHA}"; fi
+	if [ -n "${SMALL_SHA:-}" ]; then SMALL_URL="${SMALL_URL}^${SMALL_SHA}"; fi
+	cat >> "$FEEDS_CONF" <<EOF
 
-# ---- TR3600 build: 第三方 feed（passwall2 / mosdns / ddns-go / webdav）----
-src-git kenzok8 https://github.com/kenzok8/openwrt-packages.git
-src-git small https://github.com/kenzok8/small-package.git
+# ---- TR3600 build: 第三方 feed（mosdns / ddns-go / webdav）----
+# 可复现：在 workflow env 填 KENZOK8_SHA / SMALL_SHA，会写成 url^<sha>。
+src-git kenzok8 ${KENZOK8_URL}
+src-git small ${SMALL_URL}
 EOF
 	echo "[tr3600-pure] 已追加第三方 feed: kenzok8/openwrt-packages + kenzok8/small-package"
 fi
@@ -157,11 +162,9 @@ apply_fan_patch "$PATCHDIR/0003-luci-tr3600-fan-keep-pending-input.patch" \
 # 想要更簡單的風扇頁就不要把 0008 加回來：它就是複雜度的來源。
 
 # =========================================================
-# iStore 應用商店 feed：2026-10-13 移除
-#   原本這裡會執行：
-#     echo "src-git istore https://github.com/linkease/istore;main" >> feeds.conf.default
-#   現在不加這個 feed，config 也一併拿掉 luci-app-store / luci-lib-taskd /
-#   luci-lib-xterm / xz-utils。加了 feed 卻不選套件會多抓一份索引，沒必要。
+# iStore 應用商店：2026-10-13 移除 feed；2026-10-30 再次確認不裝
+#   （第三方 feed 不可控 + taskd 要編 Go + 會繞過升級鎖）。
+#   所以這裡不加 istore feed，config 也不選 luci-app-store / taskd / xterm。
 # =========================================================
 
 # =========================================================
@@ -191,7 +194,16 @@ apply_fan_patch "$PATCHDIR/0003-luci-tr3600-fan-keep-pending-input.patch" \
 # base-files 產生的那些檔案。
 if [ -d "$REPO_ROOT/files" ]; then
 	echo "[tr3600-pure] 安裝 rootfs overlay: $REPO_ROOT/files"
-	cp -a "$REPO_ROOT/files" ./files
+	# 先清掉舊的：cp -a src ./files 在 ./files 已存在時會複製成 ./files/files，
+	# 之後 prepare_rootfs 就會拿到一份多一層的 overlay。
+	# 但本腳本也支援「直接在倉庫根目錄跑」（本地測試），那時 ./files 就是
+	# 來源本身 —— 先比對路徑，避免把唯一的來源刪掉。
+	if [ "$(pwd -P)" != "$(cd "$REPO_ROOT" && pwd -P)" ]; then
+		rm -rf ./files
+		cp -a "$REPO_ROOT/files" ./files
+	else
+		echo "[tr3600-pure] 已在倉庫根目錄，直接使用 ./files"
+	fi
 	if [ ! -f ./files/etc/apk/repositories.d/distfeeds.list ]; then
 		echo "ERROR: files/ 裡沒有 distfeeds.list，鏡像不會生效"
 		exit 1
@@ -219,6 +231,32 @@ else
 	exit 1
 fi
 
+# =========================================================
+# Argon 主題（內建 vendor，不走第三方 feed）
+# =========================================================
+VENDOR_ARGON="$REPO_ROOT/vendor/luci-theme-argon"
+ARGONPKG="package/custom/luci-theme-argon"
+
+if [ ! -f "$VENDOR_ARGON/Makefile" ]; then
+	echo "ERROR: $VENDOR_ARGON/Makefile 不存在，無法編入 Argon 主題"
+	exit 1
+fi
+rm -rf "$ARGONPKG"
+echo "[tr3600-unclamp] 使用內建 Argon 主題: $VENDOR_ARGON"
+cp -a "$VENDOR_ARGON" "$ARGONPKG"
+for f in "$ARGONPKG"/root/usr/libexec/rpcd/luci.argon* \
+         "$ARGONPKG"/root/etc/uci-defaults/30_luci-theme-argon; do
+	[ -f "$f" ] && chmod 0755 "$f"
+done
+# old-style LuCI 頁面/模板要能被找到：確認三棵樹都在（缺一個就是白屏）
+for d in htdocs root ucode; do
+	if [ ! -d "$ARGONPKG/$d" ]; then
+		echo "ERROR: vendor Argon 缺少 $d/（主題會編出半套）"
+		exit 1
+	fi
+done
+echo "[tr3600-unclamp] Argon 主題就位（htdocs / root / ucode）"
+
 echo "========================================================"
-echo " TR3600 build: part1 done (只裝了風扇插件，無 iStore)"
+echo " TR3600 build: part1 done (風扇插件 + Argon 主題；iStore 不裝)"
 echo "========================================================"

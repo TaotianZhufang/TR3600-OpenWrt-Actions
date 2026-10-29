@@ -3,11 +3,12 @@ name: Build TR3600-Unclamp (Cudy TR3600 v1)
 # =============================================================================
 # TR3600 build kit — OpenWrt 功能版 + 性能優化（目前唯一的建置線）
 #
-# 2026-10-13：iStore 應用商店已移除（連同 linkease/istore feed 與其依賴），
-#   iStore 版建置線整個退休。主題用 OpenWrt 原生 bootstrap。
-#   第一輪是「只裝智能風扇」的精簡版；同日晚間第二輪按使用者要求加回
-#   VPN / 組網 / 代理 / 下載 / 共享 / DDNS 一整組（見守門機制第 7、8 條）。
-#   仍然沒有：iStore / OpenClash / SSR+ / smartdns / 第三方主題 / 工具類外掛。
+# 2026-10-30：加入 Argon 3.1.1 主題（vendor/ 內建）；iStore 評估後**不裝**
+#   （第三方 feed 不可控 + taskd 要編 Go + 會繞過升級鎖）；移除 PassWall2/Xray
+#   以騰出 rootfs 空間（59.9 MB 上限）。
+#   更早之前：第一輪是「只裝智能風扇」的精簡版；第二輪加回
+#   VPN / 組網 / 下載 / 共享 / DDNS 一整組（見守門機制第 7、8 條）。
+#   仍然沒有：iStore / OpenClash / SSR+ / smartdns / PassWall / Aurora / Kucat。
 #
 # 基底： openwrt-25.12 + Cudy TR3600 v1 板级支援（上游 PR #24596，尚未合併）
 #        實際 clone 來源見下面的 env.REPO_URL（編譯必需，非品牌標記）
@@ -48,13 +49,14 @@ name: Build TR3600-Unclamp (Cudy TR3600 v1)
 #          **不能**放 /etc/sysctl.conf，那是 conffile，被 sysupgrade 保留會蓋掉新映像的。
 #      part1 之後先確認兩份檔案就位，編譯後再從 build_dir 的 staging rootfs 複查成品。
 #   7. oldconfig 之後斷言必需包仍為 =y：kmod-sched（sch_fq）、wpad-mbedtls（802.11r/k/v）、
-#      USB 儲存/網卡/共享，以及第二輪加回來的 VPN / 代理 / 下載 / 共享 / DDNS
-#      （zerotier / tailscale / kmod-wireguard / openvpn / passwall2 / aria2 /
-#        samba4 / luci-app-ddns / mosdns / ddns-go / webdav），並確認
-#      wpad-basic-mbedtls 已被換掉。feed 裡沒有 kmod，事後補不了，只能編譯期保證。
-#      **daemon 也要斷言，不只 LuCI 前端**（ddns-go / mosdns / rpcd-mod-wireguard /
-#      openvpn-easy-rsa / passwall2 的 Xray 核心）—— 否則「菜單在、點進去空的」。
-#   8. 第三方 feed：passwall2 / mosdns / ddns-go / webdav 官方 feed 都沒有，
+#      USB 儲存/網卡/共享，第二輪加回來的 VPN / 下載 / 共享 / DDNS
+#      （zerotier / tailscale / kmod-wireguard / openvpn / aria2 / samba4 /
+#        luci-app-ddns / mosdns / ddns-go / webdav），以及 2026-10-30 加入的
+#      Argon 主題、ttyd、USB 工具。
+#      並確認 wpad-basic-mbedtls 已被換掉。feed 裡沒有 kmod，事後補不了，
+#      只能編譯期保證。**daemon 也要斷言，不只 LuCI 前端**（ddns-go / mosdns /
+#      rpcd-mod-wireguard / openvpn-easy-rsa）—— 否則「菜單在、點進去空的」。
+#   8. 第三方 feed：mosdns / ddns-go / webdav 官方 feed 都沒有，
 #      由 diy-pure-part1.sh 把 kenzok8 兩個 feed 追加進 feeds.conf.default。
 #      part1 之後斷言那兩行確實在，否則「必須 =y」清單會整批 MISS。
 # =============================================================================
@@ -78,6 +80,16 @@ env:
   # 2026-08-11 head of the branch above; used only as a reference for the
   # warning below (the branch itself is what actually gets built).
   REPO_COMMIT: 046aec0dccd9
+  # 可选：完整 40 位 SHA。填了就会 checkout 到这个 commit（可复现）；
+  # 留空 = 跟分支 HEAD。第一次构建后从日志 / Release 的「构建源」抄。
+  REPO_COMMIT_FULL: ''
+  # 可选：'true' = 源码没钉住（HEAD 与 REPO_COMMIT_FULL/REPO_COMMIT 不一致）就直接失败，
+  # 不再只是 warning。默认关闭；想强复现时和 REPO_COMMIT_FULL 一起开。
+  STRICT_SOURCE: ''
+  # 可选：把两个第三方 feed 钉在固定 commit（留空 = 跟上游 HEAD）。
+  # 写法：feeds.conf 的 url^<sha>；第一次构建后从日志抄 SHA 填这里。
+  KENZOK8_SHA: ''
+  SMALL_SHA: ''
   # 配置文件路径（相对于仓库根目录）
   CONFIG_FILE: mt7987-cudy-tr3600-pure.config
   DIY_P1_SH: diy-pure-part1.sh
@@ -137,11 +149,28 @@ jobs:
       run: |
         git clone -b "$REPO_BRANCH" --single-branch --depth=1 "$REPO_URL" openwrt
         cd openwrt
-        HEAD_SHA=$(git rev-parse --short=12 HEAD)
-        echo "分支 $REPO_BRANCH 的 HEAD = $HEAD_SHA"
-        if [ "$HEAD_SHA" != "$REPO_COMMIT" ]; then
-          echo "::warning title=上游分支已移動::分支 HEAD ($HEAD_SHA) 與建置時驗證的 $REPO_COMMIT 不同。patch 預檢步驟會把關。"
+        # 可选：钉死到完整 SHA（GitHub 支持按 SHA fetch；失败就退回分支 HEAD）
+        if [ -n "${REPO_COMMIT_FULL:-}" ] && [ "$(git rev-parse HEAD)" != "$REPO_COMMIT_FULL" ]; then
+          if git fetch --depth=1 origin "$REPO_COMMIT_FULL" 2>/dev/null && git checkout -q FETCH_HEAD; then
+            echo "✅ 源码已固定到 $REPO_COMMIT_FULL"
+          else
+            echo "::warning title=无法固定源码::拿不到 $REPO_COMMIT_FULL，继续用分支 HEAD（构建不可完全复现）"
+          fi
         fi
+        HEAD_SHA=$(git rev-parse --short=12 HEAD)
+        FULL_SHA=$(git rev-parse HEAD)
+        echo "分支 $REPO_BRANCH 的 HEAD = $HEAD_SHA"
+        # 期望值：填了 REPO_COMMIT_FULL 就以它为准，否则用 12 位参考值 REPO_COMMIT。
+        EXPECT="${REPO_COMMIT_FULL:-$REPO_COMMIT}"
+        if [ "$FULL_SHA" != "$EXPECT" ] && [ "$HEAD_SHA" != "$EXPECT" ]; then
+          if [ "${STRICT_SOURCE:-}" = "true" ]; then
+            echo "::error title=源码没钉住::HEAD=$HEAD_SHA，期望 $EXPECT（STRICT_SOURCE=true）。请设 REPO_COMMIT_FULL 或更新 REPO_COMMIT。"
+            exit 1
+          fi
+          echo "::warning title=上游分支已移動::分支 HEAD ($HEAD_SHA) 與建置時驗證的 $REPO_COMMIT 不同。patch 預檢步驟會把關；要强复现请设 REPO_COMMIT_FULL 并开 STRICT_SOURCE。"
+        fi
+        # 完整 SHA 写进 Release / Artifacts：重跑时能对照是哪一个源码版本。
+        echo "OPENWRT_SHA=$FULL_SHA" >> "$GITHUB_ENV"
 
     # =========================================================
     # 4. 执行 DIY 脚本 (diy-pure-part1.sh)
@@ -199,8 +228,8 @@ jobs:
         fi
         echo "✅ 风扇页精简：只有 auto / manual，无季节机制"
 
-        # ---- 第三方 feed（passwall2 / mosdns / ddns-go / webdav）----
-        # 这四个官方 feed 都没有（实测 apk 索引 + 上游仓库都查不到）。
+        # ---- 第三方 feed（mosdns / ddns-go / webdav）----
+        # 这几个官方 feed 都没有（实测 apk 索引 + 上游仓库都查不到）。
         # diy-pure-part1.sh 会把 kenzok8 的两个 feed 追加到 feeds.conf.default。
         # 少了它们，下一步 feeds install 找不到包，oldconfig 会把
         # CONFIG_PACKAGE_luci-app-* 吃掉 —— 与其等到最后「必须 =y」清单报错，
@@ -213,12 +242,12 @@ jobs:
           if grep -q "$f" "$FEEDSCONF"; then
             echo "  [OK] 第三方 feed: $f"
           else
-            echo "::error title=第三方 feed 缺失::feeds.conf.default 里没有 $f（passwall2/mosdns/ddns-go/webdav 会装不上）"
+            echo "::error title=第三方 feed 缺失::feeds.conf.default 里没有 $f（mosdns/ddns-go/webdav 会装不上）"
             cat "$FEEDSCONF"
             exit 1
           fi
         done
-        echo "✅ 第三方 feed 就位（passwall2 / mosdns / ddns-go / webdav）"
+        echo "✅ 第三方 feed 就位（mosdns / ddns-go / webdav）"
 
         # ---- 模块名：智能风扇（2026-10-13 改名） ----
         # menu.d 的 title 与页面 h2 用同一个字面量「智能风扇」，po 目录里也有
@@ -281,9 +310,15 @@ jobs:
 
         # ---- 纯淨版守门：确认没有任何第三方插件被偷偷 clone 进来 ----
         if [ -d package/custom ]; then
-          echo "📦 package/custom 内容（应该只有风扇插件）:"
+          echo "📦 package/custom 内容（应该只有风扇插件 + Argon 主题）:"
           ls -1 package/custom
-          EXTRA=$(ls -1 package/custom | grep -v '^luci-app-tr3600-fan$' || true)
+          for p in luci-app-tr3600-fan luci-theme-argon; do
+            if [ ! -f "package/custom/$p/Makefile" ]; then
+              echo "::error title=内置套件缺失::package/custom/$p/Makefile 不存在（diy-pure-part1.sh 没装成功）"
+              exit 1
+            fi
+          done
+          EXTRA=$(ls -1 package/custom | grep -v -E '^(luci-app-tr3600-fan|luci-theme-argon)$' || true)
           if [ -n "$EXTRA" ]; then
             echo "::warning title=非预期插件::package/custom 里还有: $EXTRA"
           fi
@@ -311,13 +346,28 @@ jobs:
         # kenzok8 的聚合 feed 跟官方 feed 有同名套件（例如 aria2），
         # scripts/feeds 自己会跳过并印 WARNING —— 那是预期行为，不是错误。
         ./scripts/feeds install -a
+
+        # ---- 记录第三方 feed 的 commit ----
+        # 这两个 feed 没有固定版本（kenzok8 一直在动），但至少把本次构建实际的
+        # commit 记下来：产物可追溯，下次想完全复现可以按这个 SHA 钉。
+        for fd in kenzok8 small; do
+          if [ -d "feeds/$fd/.git" ]; then
+            sha=$(git -C "feeds/$fd" rev-parse HEAD)
+            date=$(git -C "feeds/$fd" log -1 --format=%cs)
+            echo "  feed $fd @ $sha ($date)"
+            echo "FEED_$(echo $fd | tr a-z A-Z)_SHA=$sha" >> "$GITHUB_ENV"
+          else
+            echo "::warning title=feed 目录异常::feeds/$fd 不是 git 仓库"
+          fi
+        done
         echo "==== 第三方套件是否真的 link 进来了 ===="
-        for p in luci-app-passwall2 luci-app-mosdns luci-app-ddns-go luci-app-webdav; do
+        # 现在还需要第三方 feed 的：mosdns / ddns-go / webdav（官方 feed 没有）。
+        for p in luci-app-mosdns luci-app-ddns-go luci-app-webdav; do
           d=$(ls -d package/feeds/*/"$p" 2>/dev/null | head -1)
           if [ -n "$d" ]; then
             echo "  [OK] $p -> $d"
           else
-            echo "::warning title=第三方套件没进 package/feeds::$p 找不到，oldconfig 会把它吃掉（最后「必须 =y」清单会失败）"
+            echo "::warning title=第三方套件没进 package/feeds::$p 找不到（kenzok8 feed 变了？），oldconfig 会把它吃掉"
           fi
         done
 
@@ -369,22 +419,23 @@ jobs:
         echo "==== fan config check ===="
         grep -E "luci-app-tr3600-fan|luci-theme-bootstrap|CONFIG_DEFAULT_THEME" .config
         echo "============================"
-        # 精简版：商店 / 主题类插件一个都不该出现
-        # ⚠️ 2026-10-13 第二轮：passwall2 / mosdns / tailscale 已改为**要装**，
-        #    所以从「不该出现」名单里拿掉（它们由下面的「必须 =y」清单接管）。
+        # 精简版：这些插件一个都不该出现
+        # ⚠️ mosdns / tailscale / Argon 已改为**要装**，所以不在下面这个名单里
+        #    （它们由「必须 =y」清单接管）；iStore 维持不装，见 config 的 not set。
         echo "==== 应为空（不该出现的插件）===="
-        grep -E "CONFIG_PACKAGE_(luci-app-store|luci-app-passwall|luci-app-openclash|luci-app-ssr-plus|luci-theme-argon|luci-theme-aurora|luci-theme-kucat|luci-app-smartdns|luci-app-openlist|luci-app-filemanager|luci-app-authshield)=y" .config \
+        grep -E "CONFIG_PACKAGE_(luci-app-passwall|luci-app-openclash|luci-app-ssr-plus|luci-theme-aurora|luci-theme-kucat|luci-app-smartdns|luci-app-openlist|luci-app-filemanager|luci-app-authshield)=y" .config \
           && { echo "::error title=混入非预期插件::上面这些插件不该出现在 config 里"; exit 1; } \
           || echo "OK: 没有混入非预期插件"
         echo "========================================"
 
         # ---- 必须存在的包（oldconfig 之后仍为 y）----
         # 这些是 2026-10-13 补的：fq 排程、完整 wpad、USB 存储/网卡/共享，
-        # 以及第二轮加回来的 VPN / 代理 / 下载 / 共享 / DDNS。
+        # 以及第二轮加回来的 VPN / 下载 / 共享 / DDNS；2026-10-30 再补上
+        # Argon 主题、ttyd 与 USB 诊断工具。
         # 少了任何一个都会在设备上表现为「功能不存在」，而且 feed 里没有 kmod
         # 可以事后补装 —— 只能在编译期保证。
-        # 第三方 feed 那四个（passwall2 / mosdns / ddns-go / webdav）如果 feed
-        # 没拉下来，oldconfig 会把符号吃掉，这里就会 MISS 并直接失败。
+        # 第三方 feed 的那些（mosdns / ddns-go / webdav）如果 feed 没拉下来，
+        # oldconfig 会把符号吃掉，这里就会 MISS 并直接失败。
         #
         # ⚠️ 2026-10-13 补：**同时断言 daemon，不只断言 LuCI 前端**。
         #   luci-app-ddns-go 的 LUCI_DEPENDS 是 `+ddns-go`，luci-app-mosdns 是
@@ -430,6 +481,14 @@ jobs:
           CONFIG_PACKAGE_mosdns \
           CONFIG_PACKAGE_rpcd-mod-wireguard \
           CONFIG_PACKAGE_openvpn-easy-rsa \
+          CONFIG_PACKAGE_luci-theme-argon \
+          CONFIG_PACKAGE_luci-app-tr3600-fan \
+          CONFIG_PACKAGE_ttyd \
+          CONFIG_PACKAGE_luci-app-ttyd \
+          CONFIG_PACKAGE_usbutils \
+          CONFIG_PACKAGE_pciutils \
+          CONFIG_PACKAGE_iperf3 \
+          CONFIG_PACKAGE_tcpdump \
         ; do
           if grep -q "^${sym}=y" .config; then
             echo "  [OK] $sym"
@@ -447,7 +506,11 @@ jobs:
           echo "::error title=wpad 没换::wpad-basic-mbedtls 仍为 =y，缺 802.11r/k/v 与 WPS"
           exit 1
         fi
-        echo "✅ 必需包齐全（37 项：fq 排程 / wpad-mbedtls / USB / VPN / passwall2 / samba4 / DDNS，含 daemon）"
+        # geo 数据：mosdns 的依赖会 select 它们，config 里的 "is not set" 无效。
+        # 这里只打印实际状态，不做断言 —— 知道镜像里到底有没有就行。
+        echo "==== geo 数据（mosdns 依赖自动选中，无法在 config 关闭）===="
+        grep -E "^CONFIG_PACKAGE_(v2ray-geoip|v2ray-geosite|geo2txt|geoview)=" .config || echo "  (none)"
+        echo "✅ 必需包齐全（43 项：fq / wpad-mbedtls / USB / VPN / samba4 / DDNS / Argon / ttyd / 工具，含 daemon）"
         echo "========================================"
 
     # =========================================================
@@ -560,6 +623,21 @@ jobs:
 
         echo "📦 固件文件列表:"
         ls -lah
+
+        # 体积核对：rootfs 卷上限 59.9 MiB = 62,809,702 B。
+        # 超了 ubinize 本来就会失败；这里提前把数字打出来，省得翻日志。
+        echo
+        echo "📏 体积核对（rootfs 上限 59.9 MiB）:"
+        for f in *.bin; do
+          [ -f "$f" ] && echo "   $f  $(stat -c %s "$f") B"
+        done
+        for f in $(find "$GITHUB_WORKSPACE/openwrt/build_dir" -maxdepth 3 -name 'root*.squashfs' 2>/dev/null); do
+          sz=$(stat -c %s "$f")
+          echo "   $f  $sz B"
+          if [ "$sz" -gt 62809702 ]; then
+            echo "::warning title=rootfs 超过 59.9 MiB::$(basename "$f") 为 $sz B，刷机会失败"
+          fi
+        done
 
         # -----------------------------------------------------------------
         # 只挑出「這台機器」的產物另外放一份，避免別顆晶片的 bootloader 被發佈。
@@ -676,7 +754,7 @@ jobs:
                 openwrt/package/custom/luci-app-tr3600-fan/root/etc/uci-defaults/99-tr3600-fan \
             2>/dev/null || true
           echo
-          echo "=== 纯净版检查：package/custom 里应该只有风扇插件 ==="
+          echo "=== 纯净版检查：package/custom 里应该只有风扇插件 + Argon 主题 ==="
           ls -1 openwrt/package/custom 2>/dev/null || echo "(none)"
           echo
           echo "=== 软件源镜像（固件里真正生效的那份）==="
@@ -770,13 +848,15 @@ jobs:
 
         **固件号**：\`${FIRMWARE_NO}\` ｜ **编译时间**：$(date '+%Y-%m-%d %H:%M:%S') (Asia/Shanghai)
         **构建基底**：\`openwrt-25.12\` + Cudy TR3600 v1 板级支持 ｜ **配置文件**：\`${{ env.CONFIG_FILE }}\`
-        **主题**：OpenWrt 原生 **bootstrap**（LuCI 中文界面）
+        **构建源**：\`openwrt @ ${OPENWRT_SHA:0:12}\` ｜ \`kenzok8 @ ${FEED_KENZOK8_SHA:0:12}\` ｜ \`small @ ${FEED_SMALL_SHA:0:12}\`
+        **主题**：**Argon 3.1.1**（内置，LuCI 中文界面）
 
         > ⚠️ **不要在线升级系统（重要）**
         > 本固件的内核 6.12.94、mt76 39c960c3 与板级补丁是**同一批编译**的配套：
-        > \`apk upgrade\`、LuCI「软件包」页里的升级、iStore 更新都会破坏这个配套
+        > \`apk upgrade\`、LuCI「软件包」页里的升级都会破坏这个配套
         > （kmod 与内核 ABI 不匹配 → 模块加载失败；mt76 被换掉 → MT7990 修复失效、下行回到约 80 Mbps）。
-        > 已内置保护：升级与系统包安装会被拦截；确需执行请 \`touch /etc/apk-allow-unsafe\`。
+        > 已内置保护：\`apk\` 命令行与 LuCI 软件包页的升级/系统包安装会被拦截；
+        > 确需执行请 \`touch /etc/apk-allow-unsafe\`。
         > 正确升级方式：**整包重新编译 + sysupgrade 刷整包**。
 
 
@@ -788,7 +868,7 @@ jobs:
         |------|------|
         | 风扇 | **TR3600 智能风扇**（内置于 \`vendor/\`，不依赖第三方仓库） |
         | VPN / 组网 | ZeroTier、Tailscale、WireGuard、OpenVPN |
-        | 代理 | 本版**未内置**（为保证镜像不超过 59.9MB 的 rootfs，已移除 PassWall2 / Xray / geo 数据）；需要时用 apk 安装或用 OpenClash |
+        | 代理 | 本版**未内置**（已移除 PassWall2 / Xray 核心，约 10 MB）；注意 mosdns 依赖会带入 v2ray-geoip / geosite（约 15 MB 未压缩），关不掉。官方源不含这些包 |
         | DNS | mosdns、DDNS（\`luci-app-ddns\`）、ddns-go |
         | 下载 | aria2 |
         | 共享 | Samba4、WebDAV |
@@ -796,9 +876,9 @@ jobs:
         | 工具 | **ttyd 网页终端**、**USB 管理页**（状态 → USB 状态／系统 → USB 管理）、usbutils(lsusb)、pciutils(lspci)、ethtool、iperf3、tcpdump |
         | 无线 | \`wpad-mbedtls\`（含 **802.11r/k/v 快速漫游** 与 WPS） |
 
-        > **刻意未装**：iStore 商店、OpenClash、SSR+、smartdns、第三方主题
-        > （Argon / Aurora / Kucat）、filemanager / authshield。
-        > **已内置**：ttyd 网页终端、USB 管理页、离线诊断工具（lsusb / lspci / ethtool / iperf3 / tcpdump）。
+        > **刻意未装**：iStore、OpenClash、SSR+、smartdns、第三方主题
+        > （Aurora / Kucat）、filemanager / authshield。
+        > **已内置**：Argon 主题、ttyd 网页终端、USB 管理页、离线诊断工具（lsusb / lspci / ethtool / iperf3 / tcpdump）。
         > 要加请自行用 \`apk\` 或 LuCI 的「软件包」页面安装。
 
         > ⚠️ **ZeroTier 只有 CLI，没有 LuCI 界面** —— 上游 \`luci-app-zerotier\`
@@ -841,13 +921,26 @@ jobs:
         1. 下载上面那个 \`…cudy_tr3600-v1-squashfs-sysupgrade.bin\`
         2. 通过 Cudy 过渡中间固件后 WEB 网页后台或 U-Boot 刷入
         3. 默认 IP \`192.168.1.1\`；root **默认无密码**，首次登录请立即设置
-        4. 刷完进 LuCI 会看到 **bootstrap** 主题（OpenWrt 原生）
+        4. 刷完进 LuCI 会看到 **Argon** 主题（内置 3.1.1）
 
         > ⚠️ **本 Release 只包含 TR3600 自己的两个映像 + manifest + sha256sums。**
         > 早期版本会误把 \`mt7981-ram-*-bl2.bin\`、\`mt7986-ram-*-bl2.bin\`、
         > \`mt7987-ram-comb-bl2.bin\`、\`mt7988-ram-*-bl2.bin\` 一起挂上来 ——
         > 那些是**别颗芯片**的 BL2 RAM loader，刷进 TR3600 会**直接变砖**。
         > 如果你在旧 Release 里看到它们，**绝对不要碰**。
+
+        ### 🧪 本版是预发布（pre-release）
+
+        先刷入、跑完下面清单，再在 Release 页面把 **Pre-release** 取消勾选
+        （或 \`gh release edit <tag> --prerelease=false --latest\`），才会成为正式版。
+
+        - [ ] LuCI 能进，**Argon** 主题生效（系统 →「Argon 主题设置」能打开）
+        - [ ] 风扇页正常（auto / manual 都能调）
+        - [ ] USB 状态 / USB 管理页正常
+        - [ ] 路由器上 \`iperf3 -s -D\`，客户端跑 \`iperf3 -c 192.168.1.1 -R -t 10 -P 4\`
+              → 下行 ≥ 600 Mbps（80 MHz）；160 MHz 应更高
+        - [ ] 上传正常；\`wifi reload\` 后客户端能重连
+        - [ ] \`apk upgrade\` 确实被拦截
 
         > ⚠️ 刷机有风险，请谨慎操作；建议刷机前备份原厂固件。本固件仅供学习研究使用。
         EOF
@@ -856,6 +949,12 @@ jobs:
 
     # =========================================================
     # 16. 创建 GitHub Release 并上传固件
+    #
+    # 先发 **pre-release**：设备实测通过后再转正式版。
+    # 转正（任选其一）：
+    #   * GitHub 网页 → Releases → 该版本 → Edit → 取消勾选 “Set as a pre-release” → Update
+    #   * gh release edit <tag> --prerelease=false --latest
+    # 这样在测试完成前，Release 页不会出现「正式版」的误导。
     # =========================================================
     - name: Create Release and Upload Assets
       uses: softprops/action-gh-release@v2.3.2
@@ -864,13 +963,14 @@ jobs:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
         tag_name: ${{ steps.tag.outputs.release_tag }}
-        name: ${{ env.DEVICE_MODEL }} TR3600-Unclamp - ${{ env.BUILD_TIMESTAMP }}
+        name: Cudy TR3600 v1 · TR3600-Unclamp 1.0 — ${{ env.BUILD_TIMESTAMP }}
         body_path: release.txt
         # 只發佈 Organize 步驟挑出來的白名單檔案。
         files: |
           ${{ env.FIRMWARE_RELEASE_DIR }}/*
         draft: false
-        prerelease: false
+        # 关键：测试通过前一律是 pre-release，不进「Latest」
+        prerelease: true
 
     # =========================================================
     # 17. 清理旧的 Releases（保留最近 10 个）
