@@ -1,4 +1,4 @@
-name: Build Cudy TR3600 OpenWrt Pure
+name: Build TR3600-Unclamp (Cudy TR3600 v1)
 
 # =============================================================================
 # TR3600 build kit — OpenWrt 功能版 + 性能優化（目前唯一的建置線）
@@ -70,7 +70,7 @@ on:
 env:
   DEVICE_NAME: Cudy-TR3600
   DEVICE_MODEL: Cudy TR3600
-  FIRMWARE_PREFIX: Cudy-TR3600-Pure
+  FIRMWARE_PREFIX: Cudy-TR3600-Unclamp
   # 上游原始碼位置。編譯必需，但它是「實作細節」不是品牌：
   # 所有對外輸出（release tag / 標題 / 說明 / README）都不再引用這個名字。
   REPO_URL: https://github.com/soapmancn/openwrt
@@ -373,7 +373,7 @@ jobs:
         # ⚠️ 2026-10-13 第二轮：passwall2 / mosdns / tailscale 已改为**要装**，
         #    所以从「不该出现」名单里拿掉（它们由下面的「必须 =y」清单接管）。
         echo "==== 应为空（不该出现的插件）===="
-        grep -E "CONFIG_PACKAGE_(luci-app-store|luci-app-passwall|luci-app-openclash|luci-app-ssr-plus|luci-theme-argon|luci-theme-aurora|luci-theme-kucat|luci-app-smartdns|luci-app-openlist|luci-app-ttyd|luci-app-filemanager|luci-app-authshield)=y" .config \
+        grep -E "CONFIG_PACKAGE_(luci-app-store|luci-app-passwall|luci-app-openclash|luci-app-ssr-plus|luci-theme-argon|luci-theme-aurora|luci-theme-kucat|luci-app-smartdns|luci-app-openlist|luci-app-filemanager|luci-app-authshield)=y" .config \
           && { echo "::error title=混入非预期插件::上面这些插件不该出现在 config 里"; exit 1; } \
           || echo "OK: 没有混入非预期插件"
         echo "========================================"
@@ -512,6 +512,10 @@ jobs:
         echo "--- dry-run 套用 backport ---"
         patch -p1 --dry-run --forward < "$GITHUB_WORKSPACE/patches/0002-mt76-mt7996-sta-rec-before-vow.patch"
         echo "✅ mt76 backport 可正常套用"
+
+        echo "--- dry-run 套用 MT7990 host-fill TXD ---"
+        patch -p1 --dry-run --forward < "$GITHUB_WORKSPACE/patches/0300-mt7996-mt7990-host-fill-txd.patch"
+        echo "✅ MT7990 host-fill TXD 可正常套用"
 
     # =========================================================
     # 12. 编译固件
@@ -739,7 +743,7 @@ jobs:
       uses: actions/upload-artifact@v4
       if: steps.organize.outputs.status == 'success' && !cancelled()
       with:
-        name: ${{ env.DEVICE_NAME }}-Pure-${{ env.BUILD_TIMESTAMP }}
+        name: ${{ env.DEVICE_NAME }}-Unclamp-${{ env.BUILD_TIMESTAMP }}
         # 只上傳白名單目錄，別顆晶片的 *-ram-*-bl2.bin 不會進 artifact
         path: ${{ env.FIRMWARE_RELEASE_DIR }}
 
@@ -754,17 +758,17 @@ jobs:
         DEVICE="$DEVICE_NAME"
 
         # 對外標籤只留「設備 + 版本線 + 時間」，不帶品牌、上游作者與分支名。
-        RELEASE_TAG="${DEVICE}-Pure-${BUILD_TIME}"
+        RELEASE_TAG="${DEVICE}-Unclamp-${BUILD_TIME}"
         RELEASE_TAG=$(echo "$RELEASE_TAG" | sed 's/[^a-zA-Z0-9._-]/-/g')
 
         # 固件号：人一眼能认出这一版是哪一个构建
-        FIRMWARE_NO="Pure-${BUILD_TIME}-r${{ github.run_number }}"
+        FIRMWARE_NO="Unclamp-${BUILD_TIME}-r${{ github.run_number }}"
 
         echo "release_tag=${RELEASE_TAG}" >> "$GITHUB_OUTPUT"
         echo "firmware_no=${FIRMWARE_NO}" >> "$GITHUB_OUTPUT"
 
         cat <<EOF > release.txt
-        ## Cudy TR3600 v1 — OpenWrt 固件（功能版 + 性能優化）
+        ## Cudy TR3600 v1 — TR3600-Unclamp 1.0（OpenWrt 25.12）
 
         **固件号**：\`${FIRMWARE_NO}\` ｜ **编译时间**：$(date '+%Y-%m-%d %H:%M:%S') (Asia/Shanghai)
         **构建基底**：\`openwrt-25.12\` + Cudy TR3600 v1 板级支持 ｜ **配置文件**：\`${{ env.CONFIG_FILE }}\`
@@ -826,7 +830,7 @@ jobs:
 
         1. 下载上面那个 \`…cudy_tr3600-v1-squashfs-sysupgrade.bin\`
         2. 通过 Cudy 过渡中间固件后 WEB 网页后台或 U-Boot 刷入
-        3. 默认 IP \`192.168.6.1\`、默认密码 \`password\`
+        3. 默认 IP \`192.168.1.1\`、默认密码 \`password\`
         4. 刷完進 LuCI 會看到 **bootstrap** 主題（OpenWrt 原生）
 
         > ⚠️ **本 Release 只包含 TR3600 自己的两个映像 + manifest。**
@@ -871,6 +875,6 @@ jobs:
       with:
         keep_latest: 10
         delete_tags: true
-        delete_tag_pattern: '^${{ env.DEVICE_NAME }}-Pure'
+        delete_tag_pattern: '^${{ env.DEVICE_NAME }}-Unclamp'
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -48,11 +48,26 @@ echo " patch dir : $PATCHDIR"
 echo "========================================================"
 
 # =========================================================
+# 0. 確保 files/ overlay 內的可執行檔有 +x
+#    （用 GitHub 網頁上傳時 git 會丟掉執行位，uci-defaults 不執行就白搭）
+# =========================================================
+for f in files/etc/uci-defaults/99-tr3600-network files/usr/libexec/rpcd/tr3600.usb; do
+	if [ -f "$f" ]; then
+		chmod 0755 "$f" && echo "[tr3600-unclamp] chmod +x $f"
+	else
+		echo "WARNING: $f 不存在（files/ overlay 沒進來？）"
+	fi
+done
+
+# =========================================================
 # 1. 預設 IP / 語言 / 主題
 # =========================================================
 
-# 預設 IP 從 192.168.1.1 改為 192.168.6.1
-sed -i 's/192.168.1.1/192.168.6.1/g' package/base-files/files/bin/config_generate
+# TR3600-Unclamp：預設 LAN 維持 192.168.1.1/24（DHCP 池由
+# files/etc/uci-defaults/99-tr3600-network 在首啟時兜底設定）
+if grep -q '192.168.6.1' package/base-files/files/bin/config_generate 2>/dev/null; then
+	sed -i 's/192.168.6.1/192.168.1.1/g' package/base-files/files/bin/config_generate
+fi
 
 # 主題：OpenWrt 原生 bootstrap。
 # config 裡已經有 CONFIG_DEFAULT_THEME=bootstrap + CONFIG_PACKAGE_default-settings，
@@ -176,6 +191,15 @@ fi
 mkdir -p "$MT76PATCHDIR"
 cp "$P2" "$MT76PATCHDIR/0202-wifi-mt76-mt7996-send-the-STA_REC-before-the-per-station-VoW-setup.patch"
 echo "  installed: $(basename "$MT76PATCHDIR"/0202-*.patch)"
+
+# 5b. MT7990 host-fill TXD（修 AP->client 速率被钳在 6 Mbps）
+P3="$PATCHDIR/0300-mt7996-mt7990-host-fill-txd.patch"
+if [ ! -f "$P3" ]; then
+	echo "ERROR: $P3 not found"
+	exit 1
+fi
+cp "$P3" "$MT76PATCHDIR/0300-mt7996-mt7990-host-fill-txd.patch"
+echo "  installed: $(basename "$MT76PATCHDIR"/0300-*.patch)"
 
 echo "========================================================"
 echo " TR3600 pure build: part2 done (DTS + mt76 + 性能優化)"
