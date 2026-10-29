@@ -204,3 +204,35 @@ echo "  installed: $(basename "$MT76PATCHDIR"/0300-*.patch)"
 echo "========================================================"
 echo " TR3600 pure build: part2 done (DTS + mt76 + 性能優化)"
 echo "========================================================"
+
+# =========================================================
+# 5c. 固件版本标识（TR3600-Unclamp）
+#     openwrt-25.12 的 CONFIG_VERSION_* 不是 Kconfig 符号，会被 oldconfig 丢弃；
+#     version.mk 里 VERSION_SED_SCRIPT 用 := 立即展开，覆盖必须插在它之前。
+#     用 awk 插入（可移植、不依赖 GNU sed -i）。
+# =========================================================
+if [ -f include/version.mk ]; then
+	if grep -q '^VERSION_DIST:=TR3600-Unclamp' include/version.mk; then
+		echo '[tr3600-unclamp] version.mk 已含版本标识，跳过'
+	else
+	awk '
+		/^VERSION_DIST_SANITIZED:=/ && !done {
+			print "VERSION_DIST:=TR3600-Unclamp"
+			print "VERSION_NUMBER:=1.0"
+			print "VERSION_CODE:=1.0"
+			done = 1
+		}
+		{ print }
+	' include/version.mk > include/version.mk.new
+	if ! grep -q '^VERSION_DIST:=TR3600-Unclamp' include/version.mk.new; then
+		rm -f include/version.mk.new
+		echo "ERROR: version.mk 版本标识注入失败（未找到 VERSION_DIST_SANITIZED 锚点）"
+		exit 1
+	fi
+		mv include/version.mk.new include/version.mk
+		echo "[tr3600-unclamp] version.mk 版本标识已注入（TR3600-Unclamp 1.0）"
+	fi
+else
+	echo "ERROR: include/version.mk 不存在，无法注入版本标识"
+	exit 1
+fi

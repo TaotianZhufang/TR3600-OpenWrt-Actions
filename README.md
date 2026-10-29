@@ -15,7 +15,7 @@ Cudy TR3600 v1（MT7987B + MT7990，Wi-Fi 7 双频 BE3600）的 OpenWrt 自建�
 | 内核 | 6.12.94 |
 | mt76 | 2026.03.19（`39c960c3`） |
 | 默认 LAN | **192.168.1.1/24**，DHCP 池 192.168.1.100-249 |
-| 默认密码 | 首次登录按提示设置（若为空密码直接登录） |
+| 默认密码 | **无**（root 空密码，请首次登录后立即设置） |
 
 ## 这一版修了什么
 
@@ -56,6 +56,24 @@ Cudy TR3600 v1（MT7987B + MT7990，Wi-Fi 7 双频 BE3600）的 OpenWrt 自建�
 - **未内置 PassWall2 / Xray / v2ray-geoip / v2ray-geosite / v2ray-plugin / geoview**
   （未压缩约 90 MB，压缩后约 25 MB）。需要代理可自行 `apk` 安装，或改用 OpenClash 方案。
 - 未内置 iStore、SSR+、smartdns、第三方主题（Argon/Aurora/Kucat）、filemanager、authshield。
+
+## 在线升级保护（重要）
+
+本固件的内核 6.12.94、mt76 39c960c3 与板级补丁是同一批编译的配套，**不要在线升级**：
+
+- `apk upgrade`、LuCI「软件包」页的升级、iStore 更新都可能把 kmod 换成与内核不匹配的版本，
+  或把 mt76 换成没有 host-fill 修复的版本（MT7990 下行会回落到约 80 Mbps）；
+- 一般 `apk add`（非内核相关包）不受影响；
+- 安装 `kmod-*`、`kernel*`、`base-files`、`mt76*`、`wpad*` 会被拦截。
+
+已内置两道锁：
+
+| 锁 | 位置 | 作用 |
+|---|---|---|
+| apk 包装器 | `/usr/sbin/apk` | 拦截 `upgrade` / `fix` 与系统包安装 |
+| LuCI 后端 | `/usr/libexec/package-manager-call` | 拦截软件包页的升级与系统包安装 |
+
+确需解锁：`touch /etc/apk-allow-unsafe`（自担风险）。安全升级方式：**整包重编 + sysupgrade**。
 
 ## 性能优化
 

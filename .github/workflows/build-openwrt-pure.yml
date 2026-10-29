@@ -768,76 +768,84 @@ jobs:
         cat <<EOF > release.txt
         ## Cudy TR3600 v1 — TR3600-Unclamp 1.0（OpenWrt 25.12）
 
-        **固件号**：`${FIRMWARE_NO}` ｜ **编译时间**：$(date '+%Y-%m-%d %H:%M:%S') (Asia/Shanghai)
-        **构建基底**：`openwrt-25.12` + Cudy TR3600 v1 板级支持 ｜ **配置文件**：`${{ env.CONFIG_FILE }}`
+        **固件号**：\`${FIRMWARE_NO}\` ｜ **编译时间**：$(date '+%Y-%m-%d %H:%M:%S') (Asia/Shanghai)
+        **构建基底**：\`openwrt-25.12\` + Cudy TR3600 v1 板级支持 ｜ **配置文件**：\`${{ env.CONFIG_FILE }}\`
         **主题**：OpenWrt 原生 **bootstrap**（LuCI 中文界面）
 
-        **核心修复**：MT7990 的 SDO TX 路径损坏，导致 AP→客户端发送速率被钳制在 6 Mbit/s（下行约 80 Mbps、上行正常）。本版改由 host 填充 TXD（`0300-mt7996-mt7990-host-fill-txd.patch`）绕过该路径；另修正 `wifi reload` 后客户端无法重连（STA_REC 先于 VoW）。
+        > ⚠️ **不要在线升级系统（重要）**
+        > 本固件的内核 6.12.94、mt76 39c960c3 与板级补丁是**同一批编译**的配套：
+        > \`apk upgrade\`、LuCI「软件包」页里的升级、iStore 更新都会破坏这个配套
+        > （kmod 与内核 ABI 不匹配 → 模块加载失败；mt76 被换掉 → MT7990 修复失效、下行回到约 80 Mbps）。
+        > 已内置保护：升级与系统包安装会被拦截；确需执行请 \`touch /etc/apk-allow-unsafe\`。
+        > 正确升级方式：**整包重新编译 + sysupgrade 刷整包**。
+
+
+        **核心修复**：MT7990 的 SDO TX 路径损坏，导致 AP→客户端发送速率被钳制在 6 Mbit/s（下行约 80 Mbps、上行正常）。本版改由 host 填充 TXD（\`0300-mt7996-mt7990-host-fill-txd.patch\`）绕过该路径；另修正 \`wifi reload\` 后客户端无法重连（STA_REC 先于 VoW）。
 
         ### 📦 内置插件
 
         | 类别 | 套件 |
         |------|------|
-        | 风扇 | **TR3600 智能风扇**（内置于 `vendor/`，不依赖第三方仓库） |
+        | 风扇 | **TR3600 智能风扇**（内置于 \`vendor/\`，不依赖第三方仓库） |
         | VPN / 组网 | ZeroTier、Tailscale、WireGuard、OpenVPN |
         | 代理 | 本版**未内置**（为保证镜像不超过 59.9MB 的 rootfs，已移除 PassWall2 / Xray / geo 数据）；需要时用 apk 安装或用 OpenClash |
-        | DNS | mosdns、DDNS（`luci-app-ddns`）、ddns-go |
+        | DNS | mosdns、DDNS（\`luci-app-ddns\`）、ddns-go |
         | 下载 | aria2 |
         | 共享 | Samba4、WebDAV |
         | USB | 存储（ext4 / exfat / ntfs3 + block-mount）、约 11 种网卡芯片、手机共享（RNDIS / NCM / EEM）、WWAN（QMI / MBIM）、4 种 USB 串口 |
         | 工具 | **ttyd 网页终端**、**USB 管理页**（状态 → USB 状态／系统 → USB 管理）、usbutils(lsusb)、pciutils(lspci)、ethtool、iperf3、tcpdump |
-        | 无线 | `wpad-mbedtls`（含 **802.11r/k/v 快速漫游** 与 WPS） |
+        | 无线 | \`wpad-mbedtls\`（含 **802.11r/k/v 快速漫游** 与 WPS） |
 
         > **刻意未装**：iStore 商店、OpenClash、SSR+、smartdns、第三方主题
         > （Argon / Aurora / Kucat）、filemanager / authshield。
         > **已内置**：ttyd 网页终端、USB 管理页、离线诊断工具（lsusb / lspci / ethtool / iperf3 / tcpdump）。
-        > 要加请自行用 `apk` 或 LuCI 的「软件包」页面安装。
+        > 要加请自行用 \`apk\` 或 LuCI 的「软件包」页面安装。
 
-        > ⚠️ **ZeroTier 只有 CLI，没有 LuCI 界面** —— 上游 `luci-app-zerotier`
-        > 已不存在（2026-10-13 实测）。请用 `zerotier-cli` 或 UCI 配置。
+        > ⚠️ **ZeroTier 只有 CLI，没有 LuCI 界面** —— 上游 \`luci-app-zerotier\`
+        > 已不存在（2026-10-13 实测）。请用 \`zerotier-cli\` 或 UCI 配置。
         > 其余插件在 LuCI 里都有页面。
 
         ### ⚡ 性能优化
 
-        > 这些全部由 `/etc/sysctl.d/99-tr3600-pure.conf` 交付（**不是** `/etc/sysctl.conf`
+        > 这些全部由 \`/etc/sysctl.d/99-tr3600-pure.conf\` 交付（**不是** \`/etc/sysctl.conf\`
         > —— 那是 conffile，sysupgrade 会保留旧的、覆盖新镜像的设置）。
 
-        - ✅ **BBR + fq**：`net.ipv4.tcp_congestion_control=bbr`、`net.core.default_qdisc=fq`
+        - ✅ **BBR + fq**：\`net.ipv4.tcp_congestion_control=bbr\`、\`net.core.default_qdisc=fq\`
         - ✅ **TCP 缓冲**：rmem/wmem 上限 16 MB（2.5G WAN 高带宽下不卡吞吐）
-        - ✅ **硬件流量卸载（HWNAT）**：`flow_offloading` + `flow_offloading_hw` 默认开启，
+        - ✅ **硬件流量卸载（HWNAT）**：\`flow_offloading\` + \`flow_offloading_hw\` 默认开启，
           转发几乎不吃 CPU（要用 SQM 记得关掉）
-        - ✅ **WED 无线卸载**：`CONFIG_WED_HW_RRO_SUPPORT=y`
+        - ✅ **WED 无线卸载**：\`CONFIG_WED_HW_RRO_SUPPORT=y\`
         - ✅ **zram**：压缩内存当 swap，内存吃紧时不 OOM
 
         ### 🔧 板级修正
-        - ✅ **风扇 PWM**：DTS 由 PWM 通道 1 → **通道 0**（`pwms = <&pwm 0 50000 0>`），
-          `pinctrl-0` 改为 `pwm_pins`，风扇可测、可调速
-        - ✅ **风扇脚本权限**：`/usr/sbin/tr3600-fan`、`/etc/init.d/tr3600-fan` 由 0644 → 0755
-          （否则 `exec_direct` EACCES，LuCI 显示「未检测到风扇」）
+        - ✅ **风扇 PWM**：DTS 由 PWM 通道 1 → **通道 0**（\`pwms = <&pwm 0 50000 0>\`），
+          \`pinctrl-0\` 改为 \`pwm_pins\`，风扇可测、可调速
+        - ✅ **风扇脚本权限**：\`/usr/sbin/tr3600-fan\`、\`/etc/init.d/tr3600-fan\` 由 0644 → 0755
+          （否则 \`exec_direct\` EACCES，LuCI 显示「未检测到风扇」）
         - ✅ **风扇曲线调校**：待机 **停转**，68 / 78 / 88 °C 三段 50 % / 78 % / 100 %
           （原 65 °C 那段的 25 % 实测完全没有降温效果，已改成有效的 50 %）
-        - ✅ **LED 颜色**：`led-0` = **白**@GPIO48、`led-1` = **红**@GPIO46（本板**无蓝灯**）
+        - ✅ **LED 颜色**：\`led-0\` = **白**@GPIO48、\`led-1\` = **红**@GPIO46（本板**无蓝灯**）
         - ✅ **WiFi MAC**：2.4 GHz = **base+0x00**、5 GHz = **base+0x10**（与厂商一致）
-        - ✅ **无线**：mt76 `mt7996_mcu_add_sta()` 改为先发 STA_REC、后发 VoW/DRR
-          （修正 `wifi down/up` 后客户端再也连不上的问题）
-        - ✅ **风扇插件已内置**于仓库 `vendor/luci-app-tr3600-fan`，不依赖第三方仓库
+        - ✅ **无线**：mt76 \`mt7996_mcu_add_sta()\` 改为先发 STA_REC、后发 VoW/DRR
+          （修正 \`wifi down/up\` 后客户端再也连不上的问题）
+        - ✅ **风扇插件已内置**于仓库 \`vendor/luci-app-tr3600-fan\`，不依赖第三方仓库
 
         ### 📥 刷机
 
         | 文件 | 用途 |
         |------|------|
-        | ✅ `openwrt-mediatek-filogic-cudy_tr3600-v1-squashfs-sysupgrade.bin` | **要刷的就是这个** |
-        | 🧯 `openwrt-mediatek-filogic-cudy_tr3600-v1-initramfs-kernel.bin` | 救援 / 救砖用（内存启动） |
-        | 📄 `openwrt-mediatek-filogic.manifest` | 套件清单，**不是固件，不要刷** |
+        | ✅ \`openwrt-mediatek-filogic-cudy_tr3600-v1-squashfs-sysupgrade.bin\` | **要刷的就是这个** |
+        | 🧯 \`openwrt-mediatek-filogic-cudy_tr3600-v1-initramfs-kernel.bin\` | 救援 / 救砖用（内存启动） |
+        | 📄 \`openwrt-mediatek-filogic.manifest\` | 套件清单，**不是固件，不要刷** |
 
-        1. 下载上面那个 `…cudy_tr3600-v1-squashfs-sysupgrade.bin`
+        1. 下载上面那个 \`…cudy_tr3600-v1-squashfs-sysupgrade.bin\`
         2. 通过 Cudy 过渡中间固件后 WEB 网页后台或 U-Boot 刷入
-        3. 默认 IP `192.168.1.1`、默认密码 `password`
+        3. 默认 IP \`192.168.1.1\`；root **默认无密码**，首次登录请立即设置
         4. 刷完进 LuCI 会看到 **bootstrap** 主题（OpenWrt 原生）
 
-        > ⚠️ **本 Release 只包含 TR3600 自己的两个映像 + manifest。**
-        > 早期版本会误把 `mt7981-ram-*-bl2.bin`、`mt7986-ram-*-bl2.bin`、
-        > `mt7987-ram-comb-bl2.bin`、`mt7988-ram-*-bl2.bin` 一起挂上来 ——
+        > ⚠️ **本 Release 只包含 TR3600 自己的两个映像 + manifest + sha256sums。**
+        > 早期版本会误把 \`mt7981-ram-*-bl2.bin\`、\`mt7986-ram-*-bl2.bin\`、
+        > \`mt7987-ram-comb-bl2.bin\`、\`mt7988-ram-*-bl2.bin\` 一起挂上来 ——
         > 那些是**别颗芯片**的 BL2 RAM loader，刷进 TR3600 会**直接变砖**。
         > 如果你在旧 Release 里看到它们，**绝对不要碰**。
 
