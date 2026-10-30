@@ -92,7 +92,7 @@ LuCI：网络 → 接口 → LAN → 编辑 → DHCP 服务器 → IPv6 设置�
 
 ## 构建
 
-Actions → **Build Cudy TR3600 v1 (OpenWrt)** → Run workflow，约 1.5–3 小时。产物默认 pre-release，实测通过后取消 Pre-release 勾选转正式版。
+Actions → **Build Cudy TR3600 v1 (OpenWrt)** → Run workflow，约 1.5–3 小时。产物默认发布为**正式版**（Latest）；只是试刷时勾选 `prerelease` 输入即可。
 
 可复现：Release 的「源码」一行记录 openwrt / kenzok8 / small 的 commit；重跑时把三个 SHA 填进 `REPO_COMMIT_FULL` / `KENZOK8_SHA` / `SMALL_SHA`，并把 `STRICT_SOURCE` 设为 `true`。
 

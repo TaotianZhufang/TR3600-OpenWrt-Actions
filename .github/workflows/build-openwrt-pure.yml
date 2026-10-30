@@ -68,6 +68,11 @@ on:
         description: 'SSH connection to Actions'
         required: false
         default: 'false'
+      prerelease:
+        description: '发布为 pre-release（试刷用，不占 Latest）'
+        required: false
+        type: boolean
+        default: false
 
 env:
   DEVICE_NAME: Cudy-TR3600
@@ -943,7 +948,7 @@ jobs:
         - \`apk\` 与 LuCI 软件包页的升级已拦截；解锁：\`touch /etc/apk-allow-unsafe\`。
         - 升级方式：重新编译后 \`sysupgrade\` 刷整包。
 
-        ### 测试清单（通过后转正式版）
+        ### 刷后自检
 
         - [ ] 5G 能连，\`iperf3 -c 192.168.1.1 -R -t 10 -P 4\` 下行 ≥ 600 Mbps
         - [ ] \`wifi reload\` 后客户端能重连
@@ -960,11 +965,8 @@ jobs:
     # =========================================================
     # 16. 创建 GitHub Release 并上传固件
     #
-    # 先发 **pre-release**：设备实测通过后再转正式版。
-    # 转正（任选其一）：
-    #   * GitHub 网页 → Releases → 该版本 → Edit → 取消勾选 “Set as a pre-release” → Update
-    #   * gh release edit <tag> --prerelease=false --latest
-    # 这样在测试完成前，Release 页不会出现「正式版」的误导。
+    # 默认直接发正式版（Latest）。需要试刷时在 Run workflow 里勾选 pre-release。
+    # 手动改：GitHub 网页 → Releases → 该版本 → Edit → 勾/取消 “Set as a pre-release”。
     # =========================================================
     - name: Create Release and Upload Assets
       uses: softprops/action-gh-release@v2.3.2
@@ -979,8 +981,8 @@ jobs:
         files: |
           ${{ env.FIRMWARE_RELEASE_DIR }}/*
         draft: false
-        # 关键：测试通过前一律是 pre-release，不进「Latest」
-        prerelease: true
+        # 默认正式版；Run workflow 勾选 prerelease 时发预发布
+        prerelease: ${{ inputs.prerelease }}
 
     # =========================================================
     # 17. 清理旧的 Releases（保留最近 10 个）
