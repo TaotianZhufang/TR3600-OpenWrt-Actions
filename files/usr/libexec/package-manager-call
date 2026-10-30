@@ -5,11 +5,11 @@
 action=$1
 shift
 
-# TR3600-Unclamp: 在线升级保护（内核/kmod/mt76 与固件配套编译）
+# Cudy TR3600 v1: 在线升级保护（内核/kmod/mt76 与固件配套编译）
 if [ ! -e /etc/apk-allow-unsafe ]; then
 	case "$action" in
 		upgrade)
-			echo "TR3600-Unclamp: 在线升级已被禁用。内核/mt76/板级补丁需整包重编，安全升级请刷整包固件。"
+			echo "Cudy TR3600: 在线升级已被禁用。内核/mt76/板级补丁需整包重编，安全升级请刷整包固件。"
 			echo "如确需解锁：touch /etc/apk-allow-unsafe"
 			exit 1
 		;;
@@ -17,7 +17,7 @@ if [ ! -e /etc/apk-allow-unsafe ]; then
 		for _p in "$@"; do
 			case "$_p" in
 				kmod-*|kernel|kernel-*|base-files|mt76*|wpad*|libc)
-					echo "TR3600-Unclamp: 拒绝安装系统包 $_p（会影响模块 ABI）"
+					echo "Cudy TR3600: 拒绝安装系统包 $_p（会影响模块 ABI）"
 					exit 1
 				;;
 			esac

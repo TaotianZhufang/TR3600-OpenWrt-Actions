@@ -1,0 +1,7 @@
+{
+  "luci-app-minieap": {
+    "description": "minieap campus 802.1X auth control",
+    "read": { "ubus": { "minieap": [ "status" ] } },
+    "write": { "ubus": { "minieap": [ "save", "set_enabled", "restart" ] } }
+  }
+}

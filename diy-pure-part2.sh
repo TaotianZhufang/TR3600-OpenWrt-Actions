@@ -61,26 +61,31 @@ echo "========================================================"
 for d in package/feeds/*/luci-theme-argon; do
 	if [ -e "$d" ]; then
 		rm -rf "$d"
-		echo "[tr3600-unclamp] 已移除 feed 同名主题: $d"
+		echo "[tr3600] 已移除 feed 同名主题: $d"
 	fi
 done
 # =========================================================
 # 0. 確保 files/ overlay 內的可執行檔有 +x
 #    （用 GitHub 網頁上傳時 git 會丟掉執行位，uci-defaults 不執行就白搭）
 # =========================================================
-for f in files/etc/uci-defaults/99-tr3600-network files/usr/libexec/rpcd/tr3600.usb; do
+for f in files/etc/uci-defaults/99-tr3600-network files/usr/libexec/rpcd/tr3600.usb \
+         files/usr/libexec/rpcd/homebox files/usr/bin/homebox files/etc/init.d/homebox \
+         files/usr/libexec/rpcd/minieap files/usr/sbin/minieap files/etc/init.d/minieap \
+         files/usr/sbin/tr3600-ipv6 files/etc/uci-defaults/90-tr3600-homebox; do
 	if [ -f "$f" ]; then
-		chmod 0755 "$f" && echo "[tr3600-unclamp] chmod +x $f"
+		chmod 0755 "$f" && echo "[tr3600] chmod +x $f"
 	else
-		echo "WARNING: $f 不存在（files/ overlay 沒進來？）"
+		echo "ERROR: $f 不存在（files/ overlay 沒進來？）"; exit 1
 	fi
 done
+# minieap.conf 可能含账号密码
+[ -f files/etc/minieap.conf ] && chmod 0600 files/etc/minieap.conf
 
 # =========================================================
 # 1. 預設 IP / 語言 / 主題
 # =========================================================
 
-# TR3600-Unclamp：預設 LAN 維持 192.168.1.1/24（DHCP 池由
+# Cudy TR3600 v1：預設 LAN 維持 192.168.1.1/24（DHCP 池由
 # files/etc/uci-defaults/99-tr3600-network 在首啟時兜底設定）
 if grep -q '192.168.6.1' package/base-files/files/bin/config_generate 2>/dev/null; then
 	sed -i 's/192.168.6.1/192.168.1.1/g' package/base-files/files/bin/config_generate
@@ -233,38 +238,15 @@ fi
 cp "$P3" "$MT76PATCHDIR/0300-mt7996-mt7990-host-fill-txd.patch"
 echo "  installed: $(basename "$MT76PATCHDIR"/0300-*.patch)"
 
-echo "========================================================"
-echo " TR3600 pure build: part2 done (DTS + mt76 + 性能優化)"
-echo "========================================================"
+# =========================================================
+# 5c. 固件标识：保持 OpenWrt 默认
+#     以前这里把 VERSION_DIST 覆盖成自定义名，副作用：
+#       - 镜像前缀不再以 openwrt- 开头；
+#       - DISTRIB_DESCRIPTION 出现重复的版本号（"… 1.0 1.0"）。
+#     现在不碰 version.mk：镜像仍是 openwrt-…，系统标识是 OpenWrt 25.12-SNAPSHOT，
+#     构建时间只出现在 Release tag / 文件名之外的元数据里。
+# =========================================================
 
-# =========================================================
-# 5c. 固件版本标识（TR3600-Unclamp）
-#     openwrt-25.12 的 CONFIG_VERSION_* 不是 Kconfig 符号，会被 oldconfig 丢弃；
-#     version.mk 里 VERSION_SED_SCRIPT 用 := 立即展开，覆盖必须插在它之前。
-#     用 awk 插入（可移植、不依赖 GNU sed -i）。
-# =========================================================
-if [ -f include/version.mk ]; then
-	if grep -q '^VERSION_DIST:=TR3600-Unclamp' include/version.mk; then
-		echo '[tr3600-unclamp] version.mk 已含版本标识，跳过'
-	else
-	awk '
-		/^VERSION_DIST_SANITIZED:=/ && !done {
-			print "VERSION_DIST:=TR3600-Unclamp"
-			print "VERSION_NUMBER:=1.0"
-			print "VERSION_CODE:=1.0"
-			done = 1
-		}
-		{ print }
-	' include/version.mk > include/version.mk.new
-	if ! grep -q '^VERSION_DIST:=TR3600-Unclamp' include/version.mk.new; then
-		rm -f include/version.mk.new
-		echo "ERROR: version.mk 版本标识注入失败（未找到 VERSION_DIST_SANITIZED 锚点）"
-		exit 1
-	fi
-		mv include/version.mk.new include/version.mk
-		echo "[tr3600-unclamp] version.mk 版本标识已注入（TR3600-Unclamp 1.0）"
-	fi
-else
-	echo "ERROR: include/version.mk 不存在，无法注入版本标识"
-	exit 1
-fi
+echo "========================================================"
+echo " TR3600 build: part2 done (DTS + mt76 + 性能优化)"
+echo "========================================================"

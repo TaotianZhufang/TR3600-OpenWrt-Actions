@@ -1,0 +1,76 @@
+#!/bin/sh
+. /usr/share/libubox/jshn.sh
+
+is_running() {
+    local d
+    for d in /proc/[0-9]*; do
+        [ -r "$d/cmdline" ] || continue
+        case "$(tr '\0' ' ' < "$d/cmdline" 2>/dev/null)" in
+            "/usr/bin/homebox"*) return 0 ;;
+        esac
+    done
+    return 1
+}
+
+wait_state() {
+    local want=$1 i=0
+    while [ $i -lt 12 ]; do
+        if [ "$want" = "run" ]; then
+            is_running && return 0
+        else
+            is_running || return 0
+        fi
+        sleep 1
+        i=$((i+1))
+    done
+    return 0
+}
+
+status() {
+    local en=0 run=0 lanip
+    [ "$(uci -q get homebox.@homebox[0].enabled)" = "1" ] && en=1
+    is_running && run=1
+    lanip=$(uci -q get network.lan.ipaddr | cut -d/ -f1)
+    [ -n "$lanip" ] || lanip=192.168.1.1
+    json_init
+    json_add_boolean enabled "$en"
+    json_add_boolean running "$run"
+    json_add_string url "http://$lanip:3300"
+    json_dump
+}
+
+set_enabled() {
+    local input en
+    IFS= read -r input
+    json_load "$input" 2>/dev/null
+    json_get_var en enabled
+    case "$en" in
+        1|true|on|yes) en=1 ;;
+        *) en=0 ;;
+    esac
+    uci -q set homebox.@homebox[0].enabled="$en"
+    uci -q commit homebox
+    if [ "$en" = "1" ]; then
+        /etc/init.d/homebox enable >/dev/null 2>&1
+        /etc/init.d/homebox start >/dev/null 2>&1
+        wait_state run
+    else
+        /etc/init.d/homebox stop >/dev/null 2>&1
+        wait_state stop
+        /etc/init.d/homebox disable >/dev/null 2>&1
+    fi
+    status
+}
+
+case "$1" in
+    list)
+        echo '{"status":{},"set_enabled":{"enabled":"boolean"}}'
+        ;;
+    call)
+        case "$2" in
+            status) status ;;
+            set_enabled) set_enabled ;;
+            *) ;;
+        esac
+        ;;
+esac

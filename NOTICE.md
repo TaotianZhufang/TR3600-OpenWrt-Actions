@@ -34,6 +34,11 @@
 - 主题自带的「检查更新 / 在线壁纸」会访问 GitHub / Bing / Unsplash / Wallhaven，
   可自行在 Argon 设置页关闭。
 
+## 3c. 内置二进制（minieap / HomeBox）
+- minieap：校园网 802.1X 客户端，静态 aarch64 二进制取自本机旧固件备份（上游 MINIEAP 项目，GPL）。
+- HomeBox：iStoreOS 的测速工具，Go 静态二进制取自本机旧固件备份（linkease/homebox，许可以上游为准）。
+- 两者原样内置，未修改；minieap 的账号密码在 `/etc/minieap.conf`，默认为空。
+
 ## 4. USB 管理页面
 - files/usr/libexec/rpcd/tr3600.usb、files/usr/share/luci/... 与 files/www/...
   来自 https://github.com/EDBWDY/cudy-tr3600-openwrt 的 luci-app-tr3600-usb 包
@@ -46,6 +51,5 @@
 - 本套件不包含 OpenClash / mihomo / AdGuard 等第三方二进制。
 
 ## 6. 本套件新增部分
-- TR3600-Unclamp 的集成改动（0300 补丁接入、ttyd、USB 菜单、默认 IP、版本标识、
-  Argon 集成与升级锁）
+- 本仓库的集成改动（0300 补丁接入、ttyd、USB 管理页、HomeBox、minieap、默认网段、Argon、升级锁）
   可按 GPL-2.0 使用与再分发，但需保留上述所有上游署名。

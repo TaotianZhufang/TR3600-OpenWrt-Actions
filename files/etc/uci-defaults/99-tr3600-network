@@ -1,11 +1,11 @@
 #!/bin/sh
-# TR3600-Unclamp 1.0: 默认 LAN 192.168.1.1/24 + DHCP 池 100-249
+# Cudy TR3600 v1：默认 LAN 192.168.1.1/24 + DHCP 池 100-249
 uci -q set network.lan.ipaddr='192.168.1.1'
 uci -q set network.lan.netmask='255.255.255.0'
 uci -q set dhcp.lan.start='100'
 uci -q set dhcp.lan.limit='150'
 uci -q set dhcp.lan.leasetime='12h'
-uci -q set system.@system[0].hostname='TR3600-Unclamp'
+uci -q set system.@system[0].hostname='OpenWrt'
 uci -q commit network
 uci -q commit dhcp
 uci -q commit system

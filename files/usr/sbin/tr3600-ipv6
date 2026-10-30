@@ -1,0 +1,33 @@
+#!/bin/sh
+# 开关 IPv6：LAN 下发 / WAN6 / ULA 前缀
+# usage: tr3600-ipv6 on|off
+
+case "$1" in
+off)
+	uci -q set dhcp.lan.dhcpv6='disabled'
+	uci -q set dhcp.lan.ra='disabled'
+	uci -q set dhcp.lan.ndp='disabled'
+	uci -q delete network.lan.ip6assign
+	uci -q delete network.globals.ula_prefix
+	uci -q get network.wan6 >/dev/null && uci -q set network.wan6.disabled='1'
+	uci commit dhcp; uci commit network
+	/etc/init.d/odhcpd restart
+	/etc/init.d/network reload
+	echo 'IPv6 disabled'
+	;;
+on)
+	uci -q set dhcp.lan.dhcpv6='server'
+	uci -q set dhcp.lan.ra='server'
+	uci -q delete dhcp.lan.ndp
+	uci -q set network.lan.ip6assign='60'
+	uci -q get network.wan6 >/dev/null && uci -q set network.wan6.disabled='0'
+	uci commit dhcp; uci commit network
+	/etc/init.d/odhcpd restart
+	/etc/init.d/network reload
+	echo 'IPv6 enabled'
+	;;
+*)
+	echo "usage: $0 on|off" >&2
+	exit 1
+	;;
+esac

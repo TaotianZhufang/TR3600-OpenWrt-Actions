@@ -1,0 +1,8 @@
+{
+	"admin/services/homebox": {
+		"title": "HomeBox 测速",
+		"order": 60,
+		"action": { "type": "view", "path": "homebox/control" },
+		"depends": { "acl": [ "luci-app-homebox" ] }
+	}
+}

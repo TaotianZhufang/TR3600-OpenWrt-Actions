@@ -1,0 +1,147 @@
+#!/bin/sh
+. /usr/share/libubox/jshn.sh
+
+CONF=/etc/minieap.conf
+
+conf_get() {
+	sed -n "s/^$1=//p" "$CONF" 2>/dev/null | head -1
+}
+
+is_running() {
+	local d
+	for d in /proc/[0-9]*; do
+		[ -r "$d/cmdline" ] || continue
+		case "$(tr '\0' ' ' < "$d/cmdline" 2>/dev/null)" in
+			"/usr/sbin/minieap"*) return 0 ;;
+		esac
+	done
+	return 1
+}
+
+apply_cron() {
+	local min="$1" spec
+	case "$min" in
+		30) spec='*/30 * * * *' ;;
+		60) spec='0 * * * *' ;;
+		180) spec='0 */3 * * *' ;;
+		360) spec='0 */6 * * *' ;;
+		720) spec='0 */12 * * *' ;;
+		1440) spec='0 4 * * *' ;;
+		*) spec='' ;;
+	esac
+	[ -d /etc/crontabs ] || mkdir -p /etc/crontabs
+	touch /etc/crontabs/root
+	sed -i '/minieap-autorestart/d' /etc/crontabs/root
+	[ -n "$spec" ] && echo "$spec /etc/init.d/minieap restart >/dev/null 2>&1 # minieap-autorestart" >> /etc/crontabs/root
+	/etc/init.d/cron enable >/dev/null 2>&1
+	/etc/init.d/cron restart >/dev/null 2>&1
+}
+
+status() {
+	local user nic module ip run en hp
+	user=$(conf_get username)
+	nic=$(conf_get nic)
+	module=$(conf_get module)
+	[ -n "$nic" ] || nic=eth0
+	[ -n "$module" ] || module=rjv3
+	ip=$(ip -4 -o addr show dev "$nic" 2>/dev/null | awk '{print $4}' | head -1)
+	if is_running; then run=1; else run=0; fi
+	if [ -e /etc/rc.d/S99minieap ]; then en=1; else en=0; fi
+	if [ -n "$(conf_get password)" ]; then hp=1; else hp=0; fi
+
+	json_init
+	json_add_boolean running "$run"
+	json_add_boolean enabled "$en"
+	json_add_string username "$user"
+	json_add_boolean has_password "$hp"
+	json_add_string nic "$nic"
+	json_add_string module "$module"
+	json_add_string autorestart "$(conf_get autorestart)"
+	json_add_string ip "$ip"
+	json_dump
+}
+
+save() {
+	local input username password nic module autorestart cur_pass
+	IFS= read -r input
+	json_load "$input" 2>/dev/null
+	json_get_var username username
+	json_get_var password password
+	json_get_var nic nic
+	json_get_var module module
+	json_get_var autorestart autorestart
+
+	username=$(printf '%s' "$username" | tr -d '\r\n' | head -c 128)
+	password=$(printf '%s' "$password" | tr -d '\r\n' | head -c 128)
+	nic=$(printf '%s' "$nic" | tr -d '\r\n ' | head -c 16)
+	module=$(printf '%s' "$module" | tr -d '\r\n ' | head -c 16)
+	[ -n "$nic" ] || nic=eth0
+	[ -n "$module" ] || module=rjv3
+	case "$autorestart" in
+		30|60|180|360|720|1440) ;;
+		*) autorestart=0 ;;
+	esac
+	cur_pass=$(conf_get password)
+	[ -n "$password" ] || password="$cur_pass"
+
+	{
+		echo '# 校园网 802.1X 认证（minieap）'
+		echo "username=$username"
+		echo "password=$password"
+		echo "nic=$nic"
+		echo "module=$module"
+		echo "autorestart=$autorestart"
+	} > "$CONF"
+	chmod 600 "$CONF"
+
+	if [ -e /etc/rc.d/S99minieap ]; then
+		apply_cron "$autorestart"
+	else
+		apply_cron 0
+	fi
+
+	if is_running; then /etc/init.d/minieap restart >/dev/null 2>&1; sleep 1; fi
+	status
+}
+
+set_enabled() {
+	local input en
+	IFS= read -r input
+	json_load "$input" 2>/dev/null
+	json_get_var en enabled
+	case "$en" in
+		1|true|on|yes) en=1 ;;
+		*) en=0 ;;
+	esac
+	if [ "$en" = "1" ]; then
+		/etc/init.d/minieap enable >/dev/null 2>&1
+		/etc/init.d/minieap restart >/dev/null 2>&1
+		apply_cron "$(conf_get autorestart)"
+		sleep 1
+	else
+		/etc/init.d/minieap stop >/dev/null 2>&1
+		/etc/init.d/minieap disable >/dev/null 2>&1
+		apply_cron 0
+	fi
+	status
+}
+
+restart_svc() {
+	/etc/init.d/minieap restart >/dev/null 2>&1
+	sleep 1
+	status
+}
+
+case "$1" in
+	list)
+		echo '{"status":{},"save":{"username":"string","password":"string","nic":"string","module":"string","autorestart":"string"},"set_enabled":{"enabled":"boolean"},"restart":{}}'
+		;;
+	call)
+		case "$2" in
+			status) status ;;
+			save) save ;;
+			set_enabled) set_enabled ;;
+			restart) restart_svc ;;
+		esac
+		;;
+esac

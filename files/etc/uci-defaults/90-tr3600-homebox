@@ -1,0 +1,8 @@
+#!/bin/sh
+# HomeBox 是 overlay 里的二进制 + init 脚本，没有包的 postinst，
+# 不会自动生成 /etc/rc.d 链接；首启补上并启动一次。
+if [ -x /etc/init.d/homebox ]; then
+	/etc/init.d/homebox enable >/dev/null 2>&1
+	/etc/init.d/homebox start >/dev/null 2>&1
+fi
+exit 0

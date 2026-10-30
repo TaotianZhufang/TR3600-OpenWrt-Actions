@@ -1,5 +1,5 @@
 #!/bin/sh
-# TR3600-Unclamp: 阻止破坏系统一致性的在线升级
+# Cudy TR3600 v1: 阻止破坏系统一致性的在线升级
 # 内核(6.12.94)/mt76(39c960c3)/板级补丁是同一批编译的配套：
 #  - 在线升级 kmod -> ABI 不匹配（invalid module format）
 #  - 升级 mt76 -> MT7990 host-fill 修复失效（下行回 ~80 Mbps）
@@ -7,7 +7,7 @@ REAL=/usr/bin/apk
 LOCK=/etc/apk-allow-unsafe
 
 blocked() {
-	echo "╭─ TR3600-Unclamp：已阻止不安全的 apk 操作 ───────────────" >&2
+	echo "╭─ Cudy TR3600：已阻止不安全的 apk 操作 ───────────────────" >&2
 	echo "│ $1" >&2
 	echo "│ 本固件的内核 (6.12.94)、mt76 (39c960c3) 与板级补丁是配套编译的；" >&2
 	echo "│ 在线升级 kmod 会导致模块加载失败，升级 mt76 会让 Wi-Fi 修复失效。" >&2

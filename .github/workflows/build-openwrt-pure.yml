@@ -1,4 +1,4 @@
-name: Build TR3600-Unclamp (Cudy TR3600 v1)
+name: Build Cudy TR3600 v1 (OpenWrt)
 
 # =============================================================================
 # TR3600 build kit — OpenWrt 功能版 + 性能優化（目前唯一的建置線）
@@ -72,7 +72,7 @@ on:
 env:
   DEVICE_NAME: Cudy-TR3600
   DEVICE_MODEL: Cudy TR3600
-  FIRMWARE_PREFIX: Cudy-TR3600-Unclamp
+  FIRMWARE_PREFIX: Cudy-TR3600
   # 上游原始碼位置。編譯必需，但它是「實作細節」不是品牌：
   # 所有對外輸出（release tag / 標題 / 說明 / README）都不再引用這個名字。
   REPO_URL: https://github.com/soapmancn/openwrt
@@ -489,6 +489,20 @@ jobs:
           CONFIG_PACKAGE_pciutils \
           CONFIG_PACKAGE_iperf3 \
           CONFIG_PACKAGE_tcpdump \
+          CONFIG_PACKAGE_luci-app-wol \
+          CONFIG_PACKAGE_luci-app-commands \
+          CONFIG_PACKAGE_luci-app-nlbwmon \
+          CONFIG_PACKAGE_luci-app-wifihistory \
+          CONFIG_PACKAGE_kmod-nf-conntrack-netlink \
+          CONFIG_PACKAGE_luci-app-upnp \
+          CONFIG_PACKAGE_miniupnpd-nftables \
+          CONFIG_PACKAGE_luci-app-usteer \
+          CONFIG_PACKAGE_luci-app-travelmate \
+          CONFIG_PACKAGE_usbmuxd \
+          CONFIG_PACKAGE_smartmontools \
+          CONFIG_PACKAGE_luci-app-vnstat2 \
+          CONFIG_PACKAGE_luci-app-p910nd \
+          CONFIG_PACKAGE_luci-app-ser2net \
         ; do
           if grep -q "^${sym}=y" .config; then
             echo "  [OK] $sym"
@@ -510,7 +524,7 @@ jobs:
         # 这里只打印实际状态，不做断言 —— 知道镜像里到底有没有就行。
         echo "==== geo 数据（mosdns 依赖自动选中，无法在 config 关闭）===="
         grep -E "^CONFIG_PACKAGE_(v2ray-geoip|v2ray-geosite|geo2txt|geoview)=" .config || echo "  (none)"
-        echo "✅ 必需包齐全（43 项：fq / wpad-mbedtls / USB / VPN / samba4 / DDNS / Argon / ttyd / 工具，含 daemon）"
+        echo "✅ 必需包齐全（57 项：fq / wpad / USB / VPN / samba4 / DDNS / Argon / ttyd / 设备管理 / 漫游 / 工具，含 daemon）"
         echo "========================================"
 
     # =========================================================
@@ -656,6 +670,26 @@ jobs:
           cp -a "$f" "$RELEASE_DIR/"
         done
         shopt -u nullglob
+
+        # 原始 sha256sums 里混着**别颗芯片的 BL2**（刷了会变砖）和没上传的
+        # buildinfo/profiles.json —— 全部剔掉，只留真正放进 Release 的文件。
+        # 否则 `sha256sum -c` 一片 FAILED，还会让人以为 Release 里有那些 BL2。
+        if [ -f sha256sums ]; then
+          tmp_sums=$(mktemp)
+          for f in "$RELEASE_DIR"/*; do
+            b=$(basename "$f")
+            [ "$b" = "sha256sums" ] && continue
+            line=$(awk -v n="$b" '($2 == "*" n) || ($2 == n) { print; exit }' sha256sums)
+            if [ -n "$line" ]; then
+              printf '%s\n' "$line" >> "$tmp_sums"
+            else
+              echo "::warning title=sha256sums 缺少条目::$b 不在原始 sha256sums 里"
+            fi
+          done
+          mv "$tmp_sums" "$RELEASE_DIR/sha256sums"
+          echo "📝 sha256sums 已裁剪为 $(wc -l < "$RELEASE_DIR/sha256sums") 条（只含发布文件）"
+          cat "$RELEASE_DIR/sha256sums"
+        fi
 
         SYSUP=$(ls -1 "$RELEASE_DIR"/*cudy_tr3600-v1-squashfs-sysupgrade.bin 2>/dev/null | head -1)
         if [ -z "$SYSUP" ]; then
@@ -819,7 +853,7 @@ jobs:
       uses: actions/upload-artifact@v4
       if: steps.organize.outputs.status == 'success' && !cancelled()
       with:
-        name: ${{ env.DEVICE_NAME }}-Unclamp-${{ env.BUILD_TIMESTAMP }}
+        name: ${{ env.DEVICE_NAME }}-${{ env.BUILD_TIMESTAMP }}
         # 只上傳白名單目錄，別顆晶片的 *-ram-*-bl2.bin 不會進 artifact
         path: ${{ env.FIRMWARE_RELEASE_DIR }}
 
@@ -833,116 +867,80 @@ jobs:
         BUILD_TIME="$BUILD_TIMESTAMP"
         DEVICE="$DEVICE_NAME"
 
+        # 实际文件名：前缀 openwrt-（VERSION_DIST 保持默认，不覆盖）
+        SYSUP_NAME=$(basename "$(ls "$FIRMWARE_RELEASE_DIR"/*cudy_tr3600-v1-squashfs-sysupgrade.bin 2>/dev/null | head -1)")
+        INITRD_NAME=$(basename "$(ls "$FIRMWARE_RELEASE_DIR"/*cudy_tr3600-v1-initramfs-kernel.bin 2>/dev/null | head -1)")
+        MANIFEST_NAME=$(basename "$(ls "$FIRMWARE_RELEASE_DIR"/*.manifest 2>/dev/null | head -1)")
+
         # 對外標籤只留「設備 + 版本線 + 時間」，不帶品牌、上游作者與分支名。
-        RELEASE_TAG="${DEVICE}-Unclamp-${BUILD_TIME}"
+        RELEASE_TAG="${DEVICE}-${BUILD_TIME}"
         RELEASE_TAG=$(echo "$RELEASE_TAG" | sed 's/[^a-zA-Z0-9._-]/-/g')
 
         # 固件号：人一眼能认出这一版是哪一个构建
-        FIRMWARE_NO="Unclamp-${BUILD_TIME}-r${{ github.run_number }}"
+        FIRMWARE_NO="OpenWrt-${BUILD_TIME}-r${{ github.run_number }}"
+
+        # 第三方 feed 的实际 commit（feeds/ 是 git checkout；没初始化就写 unknown）
+        FEED_KENZOK8_SHA=$(git -C feeds/kenzok8 rev-parse HEAD 2>/dev/null || echo unknown)
+        FEED_SMALL_SHA=$(git -C feeds/small rev-parse HEAD 2>/dev/null || echo unknown)
 
         echo "release_tag=${RELEASE_TAG}" >> "$GITHUB_OUTPUT"
         echo "firmware_no=${FIRMWARE_NO}" >> "$GITHUB_OUTPUT"
 
         cat <<EOF > release.txt
-        ## Cudy TR3600 v1 — TR3600-Unclamp 1.0（OpenWrt 25.12）
+        ## Cudy TR3600 v1 — OpenWrt 25.12
 
-        **固件号**：\`${FIRMWARE_NO}\` ｜ **编译时间**：$(date '+%Y-%m-%d %H:%M:%S') (Asia/Shanghai)
-        **构建基底**：\`openwrt-25.12\` + Cudy TR3600 v1 板级支持 ｜ **配置文件**：\`${{ env.CONFIG_FILE }}\`
-        **构建源**：\`openwrt @ ${OPENWRT_SHA:0:12}\` ｜ \`kenzok8 @ ${FEED_KENZOK8_SHA:0:12}\` ｜ \`small @ ${FEED_SMALL_SHA:0:12}\`
-        **主题**：**Argon 3.1.1**（内置，LuCI 中文界面）
+        **构建时间**：$(date '+%Y-%m-%d %H:%M:%S') (Asia/Shanghai) ｜ **固件号**：\`${FIRMWARE_NO}\`
+        **源码**：\`openwrt @ ${OPENWRT_SHA:0:12}\` ｜ \`kenzok8 @ ${FEED_KENZOK8_SHA:0:12}\` ｜ \`small @ ${FEED_SMALL_SHA:0:12}\`
+        **内核**：6.12.94 ｜ **mt76**：39c960c3 ｜ **基底**：r0-046aec0 ｜ **配置**：\`${{ env.CONFIG_FILE }}\`
 
-        > ⚠️ **不要在线升级系统（重要）**
-        > 本固件的内核 6.12.94、mt76 39c960c3 与板级补丁是**同一批编译**的配套：
-        > \`apk upgrade\`、LuCI「软件包」页里的升级都会破坏这个配套
-        > （kmod 与内核 ABI 不匹配 → 模块加载失败；mt76 被换掉 → MT7990 修复失效、下行回到约 80 Mbps）。
-        > 已内置保护：\`apk\` 命令行与 LuCI 软件包页的升级/系统包安装会被拦截；
-        > 确需执行请 \`touch /etc/apk-allow-unsafe\`。
-        > 正确升级方式：**整包重新编译 + sysupgrade 刷整包**。
+        ### 修复
 
+        - **MT7990 下行被钳制**：SDO TX 路径在 MT7990 上损坏，AP→客户端被压在 6 Mbit/s（约 80 Mbps）。改由 host 填充 TXD 绕过，实测 160 MHz 下行约 1.0 Gbps、上行约 1.6 Gbps。
+        - **wifi reload 后连不上**：mt76 改为先发 STA_REC、再发 VoW/DRR。
+        - **板级**：风扇 PWM0、LED 白/红、2.4G/5G MAC 布局、风扇曲线 68/78/88 °C。
 
-        **核心修复**：MT7990 的 SDO TX 路径损坏，导致 AP→客户端发送速率被钳制在 6 Mbit/s（下行约 80 Mbps、上行正常）。本版改由 host 填充 TXD（\`0300-mt7996-mt7990-host-fill-txd.patch\`）绕过该路径；另修正 \`wifi reload\` 后客户端无法重连（STA_REC 先于 VoW）。
+        ### 包含
 
-        ### 📦 内置插件
+        | 类别 | 内容 |
+        |---|---|
+        | 主题 | Argon 3.1.1（内置） |
+        | USB | 存储、USB 网卡、Android 共享（RNDIS/NCM/ECM）、iPhone（usbmuxd）、5G 模块（QMI/MBIM）、USB 串口 |
+        | 网络 | ZeroTier、Tailscale、WireGuard、OpenVPN、mosdns、ddns-go、DDNS、aria2、Samba4、WebDAV |
+        | 工具 | ttyd、USB 管理页、lsusb/lspci、ethtool、iperf3、tcpdump、smartmontools |
+        | 设备管理 | 静态租约、nlbwmon、vnstat2、wifihistory、UPnP、WOL |
+        | 漫游/认证 | usteer、TravelMate、minieap（校园网） |
+        | 测速 | HomeBox（:3300）、iperf3 |
 
-        | 类别 | 套件 |
-        |------|------|
-        | 风扇 | **TR3600 智能风扇**（内置于 \`vendor/\`，不依赖第三方仓库） |
-        | VPN / 组网 | ZeroTier、Tailscale、WireGuard、OpenVPN |
-        | 代理 | 本版**未内置**（已移除 PassWall2 / Xray 核心，约 10 MB）；注意 mosdns 依赖会带入 v2ray-geoip / geosite（约 15 MB 未压缩），关不掉。官方源不含这些包 |
-        | DNS | mosdns、DDNS（\`luci-app-ddns\`）、ddns-go |
-        | 下载 | aria2 |
-        | 共享 | Samba4、WebDAV |
-        | USB | 存储（ext4 / exfat / ntfs3 + block-mount）、约 11 种网卡芯片、手机共享（RNDIS / NCM / EEM）、WWAN（QMI / MBIM）、4 种 USB 串口 |
-        | 工具 | **ttyd 网页终端**、**USB 管理页**（状态 → USB 状态／系统 → USB 管理）、usbutils(lsusb)、pciutils(lspci)、ethtool、iperf3、tcpdump |
-        | 无线 | \`wpad-mbedtls\`（含 **802.11r/k/v 快速漫游** 与 WPS） |
+        未内置：PassWall2/Xray、OpenClash、iStore、smartdns。
 
-        > **刻意未装**：iStore、OpenClash、SSR+、smartdns、第三方主题
-        > （Aurora / Kucat）、filemanager / authshield。
-        > **已内置**：Argon 主题、ttyd 网页终端、USB 管理页、离线诊断工具（lsusb / lspci / ethtool / iperf3 / tcpdump）。
-        > 要加请自行用 \`apk\` 或 LuCI 的「软件包」页面安装。
-
-        > ⚠️ **ZeroTier 只有 CLI，没有 LuCI 界面** —— 上游 \`luci-app-zerotier\`
-        > 已不存在（2026-10-13 实测）。请用 \`zerotier-cli\` 或 UCI 配置。
-        > 其余插件在 LuCI 里都有页面。
-
-        ### ⚡ 性能优化
-
-        > 这些全部由 \`/etc/sysctl.d/99-tr3600-pure.conf\` 交付（**不是** \`/etc/sysctl.conf\`
-        > —— 那是 conffile，sysupgrade 会保留旧的、覆盖新镜像的设置）。
-
-        - ✅ **BBR + fq**：\`net.ipv4.tcp_congestion_control=bbr\`、\`net.core.default_qdisc=fq\`
-        - ✅ **TCP 缓冲**：rmem/wmem 上限 16 MB（2.5G WAN 高带宽下不卡吞吐）
-        - ✅ **硬件流量卸载（HWNAT）**：\`flow_offloading\` + \`flow_offloading_hw\` 默认开启，
-          转发几乎不吃 CPU（要用 SQM 记得关掉）
-        - ✅ **WED 无线卸载**：\`CONFIG_WED_HW_RRO_SUPPORT=y\`
-        - ✅ **zram**：压缩内存当 swap，内存吃紧时不 OOM
-
-        ### 🔧 板级修正
-        - ✅ **风扇 PWM**：DTS 由 PWM 通道 1 → **通道 0**（\`pwms = <&pwm 0 50000 0>\`），
-          \`pinctrl-0\` 改为 \`pwm_pins\`，风扇可测、可调速
-        - ✅ **风扇脚本权限**：\`/usr/sbin/tr3600-fan\`、\`/etc/init.d/tr3600-fan\` 由 0644 → 0755
-          （否则 \`exec_direct\` EACCES，LuCI 显示「未检测到风扇」）
-        - ✅ **风扇曲线调校**：待机 **停转**，68 / 78 / 88 °C 三段 50 % / 78 % / 100 %
-          （原 65 °C 那段的 25 % 实测完全没有降温效果，已改成有效的 50 %）
-        - ✅ **LED 颜色**：\`led-0\` = **白**@GPIO48、\`led-1\` = **红**@GPIO46（本板**无蓝灯**）
-        - ✅ **WiFi MAC**：2.4 GHz = **base+0x00**、5 GHz = **base+0x10**（与厂商一致）
-        - ✅ **无线**：mt76 \`mt7996_mcu_add_sta()\` 改为先发 STA_REC、后发 VoW/DRR
-          （修正 \`wifi down/up\` 后客户端再也连不上的问题）
-        - ✅ **风扇插件已内置**于仓库 \`vendor/luci-app-tr3600-fan\`，不依赖第三方仓库
-
-        ### 📥 刷机
+        ### 刷机
 
         | 文件 | 用途 |
-        |------|------|
-        | ✅ \`openwrt-mediatek-filogic-cudy_tr3600-v1-squashfs-sysupgrade.bin\` | **要刷的就是这个** |
-        | 🧯 \`openwrt-mediatek-filogic-cudy_tr3600-v1-initramfs-kernel.bin\` | 救援 / 救砖用（内存启动） |
-        | 📄 \`openwrt-mediatek-filogic.manifest\` | 套件清单，**不是固件，不要刷** |
+        |---|---|
+        | \`${SYSUP_NAME}\` | 系统 |
+        | \`${INITRD_NAME}\` | 救援 |
+        | \`${MANIFEST_NAME}\` | 包清单 |
 
-        1. 下载上面那个 \`…cudy_tr3600-v1-squashfs-sysupgrade.bin\`
-        2. 通过 Cudy 过渡中间固件后 WEB 网页后台或 U-Boot 刷入
-        3. 默认 IP \`192.168.1.1\`；root **默认无密码**，首次登录请立即设置
-        4. 刷完进 LuCI 会看到 **Argon** 主题（内置 3.1.1）
+        1. \`sysupgrade -n <镜像>\`，或 LuCI → 系统 → 备份/刷写固件（不保留配置）
+        2. 默认 \`192.168.1.1\`，root 无密码，登录后立即设置
+        3. 5G 不启动时设国家码：\`uci set wireless.@wifi-device[1].country='CN'; uci commit wireless; wifi reload\`
 
-        > ⚠️ **本 Release 只包含 TR3600 自己的两个映像 + manifest + sha256sums。**
-        > 早期版本会误把 \`mt7981-ram-*-bl2.bin\`、\`mt7986-ram-*-bl2.bin\`、
-        > \`mt7987-ram-comb-bl2.bin\`、\`mt7988-ram-*-bl2.bin\` 一起挂上来 ——
-        > 那些是**别颗芯片**的 BL2 RAM loader，刷进 TR3600 会**直接变砖**。
-        > 如果你在旧 Release 里看到它们，**绝对不要碰**。
+        ### 注意
 
-        ### 🧪 本版是预发布（pre-release）
+        - **不要在线升级**：内核、mt76、板级补丁同批编译。\`apk upgrade\` 或 LuCI 软件包页升级会导致 kmod ABI 不匹配，或丢失 MT7990 下行修复。
+        - \`apk\` 与 LuCI 软件包页的升级已拦截；解锁：\`touch /etc/apk-allow-unsafe\`。
+        - 升级方式：重新编译后 \`sysupgrade\` 刷整包。
 
-        先刷入、跑完下面清单，再在 Release 页面把 **Pre-release** 取消勾选
-        （或 \`gh release edit <tag> --prerelease=false --latest\`），才会成为正式版。
+        ### 测试清单（通过后转正式版）
 
-        - [ ] LuCI 能进，**Argon** 主题生效（系统 →「Argon 主题设置」能打开）
-        - [ ] 风扇页正常（auto / manual 都能调）
-        - [ ] USB 状态 / USB 管理页正常
-        - [ ] 路由器上 \`iperf3 -s -D\`，客户端跑 \`iperf3 -c 192.168.1.1 -R -t 10 -P 4\`
-              → 下行 ≥ 600 Mbps（80 MHz）；160 MHz 应更高
-        - [ ] 上传正常；\`wifi reload\` 后客户端能重连
-        - [ ] \`apk upgrade\` 确实被拦截
+        - [ ] 5G 能连，\`iperf3 -c 192.168.1.1 -R -t 10 -P 4\` 下行 ≥ 600 Mbps
+        - [ ] \`wifi reload\` 后客户端能重连
+        - [ ] USB 共享可用（\`ubus call tr3600.usb status\` 有 usb0）
+        - [ ] 风扇页、USB 管理页正常
+        - [ ] HomeBox 测速页（:3300）、校园网认证页可打开并保存
+        - [ ] \`apk upgrade\` 被拦截
 
-        > ⚠️ 刷机有风险，请谨慎操作；建议刷机前备份原厂固件。本固件仅供学习研究使用。
+        > 本 Release 只含上表三个文件与 sha256sums，不含别家芯片的 BL2。
         EOF
 
         echo "status=success" >> "$GITHUB_OUTPUT"
@@ -963,7 +961,7 @@ jobs:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
         tag_name: ${{ steps.tag.outputs.release_tag }}
-        name: Cudy TR3600 v1 · TR3600-Unclamp 1.0 — ${{ env.BUILD_TIMESTAMP }}
+        name: Cudy TR3600 v1 — OpenWrt ${{ env.BUILD_TIMESTAMP }}
         body_path: release.txt
         # 只發佈 Organize 步驟挑出來的白名單檔案。
         files: |
@@ -985,6 +983,6 @@ jobs:
       with:
         keep_latest: 10
         delete_tags: true
-        delete_tag_pattern: '^${{ env.DEVICE_NAME }}-Unclamp'
+        delete_tag_pattern: '^${{ env.DEVICE_NAME }}-'
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

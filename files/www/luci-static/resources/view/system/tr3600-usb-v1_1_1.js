@@ -27,7 +27,7 @@ function size(sectors) {
 return view.extend({
 	load: function() { return getStatus(); },
 	render: function(data) {
-		var state = data, busy = false;
+		var state = data, busy = false, lastSig = null;
 		var devices = E('div'), disks = E('div'), support = E('div'), wan = E('div');
 		var freshness = E('p', { 'class': 'cbi-section-description' });
 		var notice = E('p');
@@ -58,16 +58,38 @@ return view.extend({
 			support.replaceChildren(table(['功能', '驱动状态', '对应软件包'], d.support.map(function(x) {
 				return [x.name, x.available ? '内核驱动可用' : '缺少内核驱动', x.packages];
 			}), '暂无信息'));
-			var chosen = select.value || d.wan.device;
-			select.replaceChildren.apply(select, d.networks.length ? d.networks.map(function(x) {
-				return E('option', { value: x.device, disabled: !eligible(x) }, x.device + ' · ' + (x.driver || 'USB 网卡') + (eligible(x) ? '' : '（已用于 ' + x.owner + '）'));
-			}) : [E('option', { value: '' }, '尚未检测到 USB 网卡')]);
-			if (d.networks.some(function(x) { return x.device === chosen; })) select.value = chosen;
+			// 只有设备列表变化时才重建 <select>：每 10 秒重建会把用户正在打开的下拉框关掉，
+			// 表现就是“选项选不了”。重建时优先保留当前选择，否则自动选第一个可用设备。
+			var sig = JSON.stringify(d.networks.map(function(x) { return [x.device, x.driver || '', x.owner || '']; }));
+			if (sig !== lastSig) {
+				lastSig = sig;
+				var keep = select.value || d.wan.device;
+				var opts = d.networks.map(function(x) {
+					return E('option', { value: x.device, disabled: !eligible(x) }, x.device + ' · ' + (x.driver || 'USB 网卡') + (eligible(x) ? '' : '（已用于 ' + x.owner + '）'));
+				});
+				if (d.networks.length && !d.networks.some(eligible)) opts.unshift(E('option', { value: '' }, '（设备被占用，见下方提示）'));
+				select.replaceChildren.apply(select, d.networks.length ? opts : [E('option', { value: '' }, '尚未检测到 USB 网卡')]);
+				var pick = '';
+				for (var i = 0; i < d.networks.length; i++) {
+					if (d.networks[i].device === keep && eligible(d.networks[i])) { pick = keep; break; }
+				}
+				if (!pick) {
+					for (i = 0; i < d.networks.length; i++) {
+						if (eligible(d.networks[i])) { pick = d.networks[i].device; break; }
+					}
+				}
+				select.value = pick;
+			}
 			wan.replaceChildren(
 				row('USB 上网状态', !d.wan.configured ? '未配置' : d.wan.disabled === '1' ? '已停用' : d.wan.up ? '已连接' : '等待设备 / DHCP 地址'),
 				row('当前 USB 接口', d.wan.device || '—'), row('IPv4 地址', d.wan.address || '—')
 			);
-			notice.textContent = d.networks.length ? '检测到 USB 网络设备。可作为 DHCP 上网出口，数字越大优先级越低。' : '当前没有可配置的 USB 网卡。Android 请开启“USB 网络共享”；iPhone 请开启“个人热点”并信任此设备。若仍未出现网卡，需要先补齐驱动。';
+			var owned = d.networks.filter(function(x) { return !eligible(x); });
+			notice.textContent = d.networks.length
+				? (owned.length === d.networks.length
+					? '检测到 USB 网卡，但都被其他接口占用了（' + owned.map(function(x) { return x.device + ' → ' + x.owner; }).join('、') + '）。先到「网络 → 接口」里删掉或改绑那个接口，再回来启用。'
+					: '检测到 USB 网络设备。可作为 DHCP 上网出口，数字越大优先级越低。')
+				: '当前没有可配置的 USB 网卡。Android 请开启“USB 网络共享”；iPhone 请开启“个人热点”并信任此设备。若仍未出现网卡，需要先补齐驱动。';
 			freshness.textContent = '每 10 秒刷新 · 最近更新 ' + new Date().toLocaleTimeString();
 			buttons();
 		};

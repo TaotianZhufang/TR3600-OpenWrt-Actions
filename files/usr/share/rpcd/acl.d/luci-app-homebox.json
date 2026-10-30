@@ -1,0 +1,7 @@
+{
+  "luci-app-homebox": {
+    "description": "homebox speed test service control",
+    "read": { "ubus": { "homebox": [ "status" ] } },
+    "write": { "ubus": { "homebox": [ "set_enabled" ] } }
+  }
+}

@@ -1,150 +1,107 @@
-# TR3600-Unclamp 1.0
+# Cudy TR3600 v1 OpenWrt
 
-Cudy TR3600 v1（MT7987B + MT7990，Wi-Fi 7 双频 BE3600）的 OpenWrt 自建固件，基于 GitHub Actions 构建。
+Cudy TR3600 v1（MT7987B + MT7990）的 OpenWrt 25.12 自编译固件，GitHub Actions 构建。
 
-> **Unclamp / 解钳**：修掉 MT7990 把 AP 发送速率钳制在 6 Mbit/s、导致下行掉到约 80 Mbps 的问题。
-
-## 版本信息
+## 版本
 
 | 项 | 值 |
 |---|---|
-| 固件名 | **TR3600-Unclamp 1.0** |
-| 固件标识 | `DISTRIB_DESCRIPTION="TR3600-Unclamp 1.0"`（`DISTRIB_REVISION="r0-046aec0"`） |
-| 构建基底 | `openwrt-25.12` + Cudy TR3600 v1 板级支持（上游 PR #24596，尚未合入） |
-| 源码 HEAD | `soapmancn/openwrt` @ `agent/cudy-tr3600-v1-6.12`（钉在 `046aec0d`） |
+| 系统 | OpenWrt 25.12-SNAPSHOT（r0-046aec0） |
 | 内核 | 6.12.94 |
-| mt76 | 2026.03.19（`39c960c3`） |
-| 默认 LAN | **192.168.1.1/24**，DHCP 池 192.168.1.100-249 |
-| 默认密码 | **无**（root 空密码，请首次登录后立即设置） |
+| mt76 | 39c960c3 |
+| 默认 LAN | 192.168.1.1/24，DHCP 100–249 |
+| root 密码 | 无，首次登录后设置 |
 
-## 这一版修了什么
+## 修复
 
-### 核心修复
+- **MT7990 下行**：SDO TX 路径在 MT7990 上损坏，AP→客户端被压在 6 Mbit/s（约 80 Mbps）。改为由 host 填充 TXD 绕过，实测 160 MHz 下行约 1.0 Gbps、上行约 1.6 Gbps。
+- **wifi reload 后连不上**：mt76 改为先发 STA_REC、再发 VoW/DRR。
+- **板级**：风扇 PWM0、LED 白/红、2.4G/5G MAC 布局、风扇曲线 68/78/88 °C。
 
-- **MT7990 SDO TX 路径**（`patches/0300-mt7996-mt7990-host-fill-txd.patch`）
-  固件用 SDO 为 802.3 单播帧填写 TXD，在 MT7990 上该路径损坏，速率字段被写坏，
-  AP 发送被钳在 6 Mbit/s。补丁让 MT7990 一律由 host 填充 TXD，绕过该路径。
-  来源：kyoto44（openwrt/mt76 issue #1043），visualphoenix/beryl7 打包。
-- **STA_REC 顺序**（`patches/0002`）：改为先发 STA_REC、后发 VoW/DRR，
-  修掉 `wifi down/up` 或改无线配置后客户端再也连不上的问题。
+## 包含
 
-### 板级修正
+Argon 3.1.1 主题；USB 存储/网卡/Android 共享/5G 模块/串口；
+ZeroTier、Tailscale、WireGuard、OpenVPN、mosdns、ddns-go、DDNS、aria2、Samba4、WebDAV；
+ttyd、USB 管理页、HomeBox 测速、nlbwmon、vnstat2、wifihistory、UPnP、WOL、usteer、TravelMate、minieap、usbmuxd、smartmontools、iperf3、tcpdump。
 
-- 风扇 PWM 通道 1 → 0（`0001`），风扇可测可调；曲线设为 68/78/88°C 三段
-- LED：`led-0` 白 @GPIO48、`led-1` 红 @GPIO46（`0004`，本板无蓝灯）
-- WiFi MAC：2.4G = base+0x00、5G = base+0x10（`0005`）
-- 风扇温控曲线与调校（`0006`、`0007`）
-- LuCI 风扇页 dirty flag 修复（`0003`）
-
-## 内置软件
-
-| 类别 | 内容 |
-|---|---|
-| 风扇 | TR3600 智能风扇（`vendor/`，不依赖第三方仓库） |
-| 主题 | **Argon 3.1.1**（`vendor/` 内置，含 argon-config 页面） |
-| VPN / 组网 | ZeroTier、Tailscale、WireGuard、OpenVPN |
-| DNS | mosdns、DDNS（`luci-app-ddns`）、ddns-go |
-| 下载 | aria2 |
-| 商店 | **未内置**（iStore 要第三方 feed + Go 后台，评估后不装；用 LuCI「软件包」页） |
-| 共享 | Samba4、WebDAV |
-| USB | 存储（ext4/exfat/ntfs3 + block-mount）、约 11 种网卡芯片、手机共享（RNDIS/NCM/EEM）、WWAN（QMI/MBIM）、USB 串口 |
-| 工具 | **ttyd 网页终端**、**USB 管理页**（状态→USB 状态；系统→USB 管理）、usbutils(lsusb)、pciutils(lspci)、ethtool、iperf3、tcpdump |
-| 无线 | `wpad-mbedtls`（802.11r/k/v 快速漫游 + WPS） |
-
-### 为控制体积而移除
-
-设备 squashfs `rootfs` 卷只有 **59.9 MB**（另有 140 MB 的 `rootfs_data`，那是
-可写数据区，不能用来装系统文件），因此本版：
-
-- **未内置 PassWall2 / Xray 核心 / v2ray-plugin / geoview**（Xray 约 10 MB）。
-  注意：mosdns 的前端依赖会**自动选中 v2ray-geoip / v2ray-geosite**（约 15 MB
-  未压缩），这两项在 config 里关不掉 —— 只有不装 mosdns 才能省。
-- 官方软件源不含 PassWall2 这些包，需要时请自行添加第三方源；
-  不要照抄「`apk add luci-app-passwall2`」。
-- 未内置 SSR+、smartdns、第三方主题（Aurora/Kucat）、filemanager、authshield。
-
-## 在线升级保护（重要）
-
-本固件的内核 6.12.94、mt76 39c960c3 与板级补丁是同一批编译的配套，**不要在线升级**：
-
-- `apk upgrade`、LuCI「软件包」页的升级都可能把 kmod 换成与内核不匹配的版本，
-  或把 mt76 换成没有 host-fill 修复的版本（MT7990 下行会回落到约 80 Mbps）；
-- 一般 `apk add`（非内核相关包）不受影响；
-- 安装 `kmod-*`、`kernel*`、`base-files`、`mt76*`、`wpad*` 会被拦截。
-
-⚠️ 锁的边界（别把它当成万无一失）：
-
-- 拦截是按**命令行里的包名**做的；直接调用 `/usr/bin/apk`、或让第三方商店自己
-  执行更新，仍可能绕过 —— 所以别在商店里点「全部更新」。
-- 官方源**没有内核模块**（kmod 只在固件里），所以普通插件即使依赖 kmod 也装不上，
-  不会悄悄换掉内核模块。
-
-已内置两道锁：
-
-| 锁 | 位置 | 作用 |
-|---|---|---|
-| apk 包装器 | `/usr/sbin/apk` | 拦截 `upgrade` / `fix` 与系统包安装 |
-| LuCI 后端 | `/usr/libexec/package-manager-call` | 拦截软件包页的升级与系统包安装 |
-
-确需解锁：`touch /etc/apk-allow-unsafe`（自担风险）。安全升级方式：**整包重编 + sysupgrade**。
-
-## 性能优化
-
-由 `/etc/sysctl.d/99-tr3600-pure.conf` 交付（不是 `/etc/sysctl.conf`，那是 conffile 会被 sysupgrade 保留）：
-
-- BBR + fq（`tcp_congestion_control=bbr`、`default_qdisc=fq`）
-- TCP 缓冲上限 16 MB
-- 硬件流量卸载（HWNAT：`flow_offloading` + `flow_offloading_hw`）
-- zram 压缩内存
-
-## 构建（GitHub Actions）
-
-1. fork 本仓库（或直接使用）
-2. Actions → **Build TR3600-Unclamp (Cudy TR3600 v1)** → Run workflow
-3. 约 1.5~3 小时，产物在 Release / Artifacts —— **先发 pre-release**，设备实测
-   通过后手动取消 Pre-release 勾选才转正式版（`gh release edit <tag> --prerelease=false --latest`）
-
-**可复现性**：每次 Release 的「构建源」会写明 `openwrt` / `kenzok8` / `small` 的
-commit。想重跑出同一份，把这三个 SHA 填进 workflow 的 `REPO_COMMIT_FULL` /
-`KENZOK8_SHA` / `SMALL_SHA`；再把 `STRICT_SOURCE` 设为 `true` —— 源码没钉住
-就**直接失败**，而不是只 warning。留空则跟上游 HEAD：只能记录，不能保证一致。
-
-关键日志（都出现才算走对）：
-
-```
-✅ MT7990 host-fill TXD 可正常套用
-installed: 0300-mt7996-mt7990-host-fill-txd.patch
-[tr3600-unclamp] chmod +x files/etc/uci-defaults/99-tr3600-network
-✅ 必需包齐全
-```
+未内置：PassWall2/Xray、OpenClash、iStore、smartdns。
 
 ## 刷机
 
-只刷 `openwrt-mediatek-filogic-cudy_tr3600-v1-squashfs-sysupgrade.bin`。
-
-```bash
+```sh
 scp openwrt-mediatek-filogic-cudy_tr3600-v1-squashfs-sysupgrade.bin root@192.168.1.1:/tmp/fw.bin
-ssh root@192.168.1.1 "sha256sum /tmp/fw.bin"      # 与 release 的 sha256sums 比对
-ssh root@192.168.1.1 "sysupgrade -n /tmp/fw.bin"  # -n：不保留配置
+ssh root@192.168.1.1 'sysupgrade -n /tmp/fw.bin'
 ```
 
-⚠️ 刷前确认 squashfs `root` 分区 < **59.9 MB**（上一版 45.6 MB；本版只加 Argon
-主题，iStore 已移除，预计 ~47 MB，余量充足）。超过就只能砍包重编。
+或在 LuCI → 系统 → 备份/刷写固件里刷，取消「保留配置」。
 
-救砖：TFTP（电脑 192.168.1.88/24，路由 192.168.1.112，端口 3777，按住 reset 8~10 秒）。
+首次启动：设 root 密码；5G 不启动时设国家码：
+
+```sh
+uci set wireless.@wifi-device[1].country='CN'
+uci commit wireless && wifi reload
+```
+
+MT7990 只有一个 wiphy：2.4G 是 `phy0.0-ap0`，5G 是 `phy0.1-ap0`；`ls /sys/class/ieee80211` 只有 `phy0` 是正常的。
+
+## USB 网络共享
+
+1. 手机开启 USB 网络共享，确认 `ip -br link` 里有 `usb0`（或 `eth2`）；iPhone 已带 usbmuxd，插上后点信任即可；
+2. LuCI → 系统 → USB 管理 → 选设备 → 启用。默认 metric 200，有线 WAN 优先；
+3. 页面不可用时用命令行：
+
+```sh
+ubus call tr3600.usb status
+ubus call tr3600.usb configure '{"device":"usb0","metric":"200"}'
+```
+
+`usbwan` 绑定的是接口名，换设备或加 USB 分线器时可能被占用，先到「网络 → 接口」里解绑。
+
+## 设备管理
+
+- **MAC-IP 绑定**：网络 → DHCP/DNS → 静态租约。
+- **流量统计**：状态 → 流量统计（nlbwmon）；状态 → Wi-Fi 历史（wifihistory）。
+- **限速**：官方没有按设备限速的图形页，本固件也不带 qos-scripts（全局策略、依赖 iptables，和 HWNAT 冲突）。需要按 IP 限速时用 tc 规则，或告诉我单独加。
+- **UPnP / WOL / 定时 Wi-Fi / 唤醒**：服务与网络菜单里的对应页面。
+
+## 关闭 IPv6
+
+LuCI：网络 → 接口 → LAN → 编辑 → DHCP 服务器 → IPv6 设置，把 RA、DHCPv6、NDP 都设为 disabled；再把 WAN6 接口停用、全局网络选项里的 ULA 前缀清空。
+
+命令行：`tr3600-ipv6 off`，恢复用 `tr3600-ipv6 on`。
+
+## 漫游 / 认证
+
+- 漫游：usteer 随 802.11k/v 工作，网络 → 无线 → 漫游。
+- 酒店/机场：服务 → TravelMate，扫描并保存认证页。
+- 校园网：服务 → **校园网认证**，填学号/密码/网卡（默认 eth0）、选认证方式（默认 rjv3）、按需选自动重启（30 分钟～每天），点「启用服务」。配置写入 `/etc/minieap.conf`；自动重启写入 `/etc/crontabs/root`（行尾标记 `# minieap-autorestart`），停用服务时一并移除。
+
+## 测速
+
+服务 → **HomeBox 测速**（端口 3300），或路由器 `iperf3 -s -D` 后用客户端跑 `iperf3 -c 192.168.1.1 -R`。
+
+## 不要在线升级
+
+内核、mt76、板级补丁同批编译。`apk upgrade`、LuCI 软件包页升级会导致 kmod ABI 不匹配，或替换 mt76 后丢失 MT7990 下行修复。
+
+升级方式：重新编译，`sysupgrade -n` 刷整包。`/usr/sbin/apk` 与 LuCI 软件包页的升级入口已拦截，解锁用 `touch /etc/apk-allow-unsafe`。
+
+## 构建
+
+Actions → **Build Cudy TR3600 v1 (OpenWrt)** → Run workflow，约 1.5–3 小时。产物默认 pre-release，实测通过后取消 Pre-release 勾选转正式版。
+
+可复现：Release 的「源码」一行记录 openwrt / kenzok8 / small 的 commit；重跑时把三个 SHA 填进 `REPO_COMMIT_FULL` / `KENZOK8_SHA` / `SMALL_SHA`，并把 `STRICT_SOURCE` 设为 `true`。
 
 ## 目录
 
 ```
-patches/            板级补丁 0001-0007 + mt76 补丁 0002 / 0300
-files/              rootfs overlay（默认网段、USB 管理页、apk 源、sysctl）
-vendor/             内置 LuCI 风扇插件 + Argon 3.1.1 主题
-diy-pure-part1.sh   复制 files/、加第三方 feed
-diy-pure-part2.sh   打补丁、装风扇插件、设置默认值
+patches/                         板级补丁 0001-0007，mt76 补丁 0002/0300
+files/                           rootfs overlay（网络、USB 页、HomeBox、minieap、apk 源、sysctl）
+vendor/                          风扇插件、Argon 主题
+diy-pure-part1.sh / part2.sh     构建脚本
 mt7987-cudy-tr3600-pure.config   构建配置
-NOTICE.md           来源与许可说明
 ```
 
 ## 许可
 
-见 [NOTICE.md](NOTICE.md)：OpenWrt 本体 GPL-2.0；mt76 补丁为 GPL 派生；构建脚本与 USB 页面来自未声明许可的上游仓库，个人使用无碍，公开发布前请保留署名与来源链接。
+见 [NOTICE.md](NOTICE.md)。

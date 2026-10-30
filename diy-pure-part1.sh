@@ -226,6 +226,20 @@ if [ -d "$REPO_ROOT/files" ]; then
 		exit 1
 	fi
 	echo "[tr3600-pure] sysctl.d/99-tr3600-pure.conf → fq + BBR + 16 MB 緩衝區"
+	# 自帶的二進位 / 腳本必須在 overlay 裡
+	for f in usr/bin/homebox etc/init.d/homebox usr/libexec/rpcd/homebox \
+	         usr/sbin/minieap etc/minieap.conf usr/libexec/rpcd/minieap \
+	         usr/share/luci/menu.d/luci-app-homebox.json usr/share/luci/menu.d/luci-app-minieap.json \
+	         usr/share/rpcd/acl.d/luci-app-homebox.json usr/share/rpcd/acl.d/luci-app-minieap.json \
+	         www/luci-static/resources/view/homebox/control.js \
+	         www/luci-static/resources/view/minieap/control.js \
+	         usr/sbin/tr3600-ipv6 etc/uci-defaults/90-tr3600-homebox; do
+		if [ ! -f "./files/$f" ]; then
+			echo "ERROR: files/$f 缺失（homebox / minieap / tr3600-ipv6）"
+			exit 1
+		fi
+	done
+	echo "[tr3600-pure] 内置二进制：homebox / minieap / tr3600-ipv6"
 else
 	echo "ERROR: $REPO_ROOT/files 不存在，軟體源會退回慢速的 downloads.openwrt.org"
 	exit 1
@@ -242,7 +256,7 @@ if [ ! -f "$VENDOR_ARGON/Makefile" ]; then
 	exit 1
 fi
 rm -rf "$ARGONPKG"
-echo "[tr3600-unclamp] 使用內建 Argon 主題: $VENDOR_ARGON"
+echo "[tr3600] 使用內建 Argon 主題: $VENDOR_ARGON"
 cp -a "$VENDOR_ARGON" "$ARGONPKG"
 for f in "$ARGONPKG"/root/usr/libexec/rpcd/luci.argon* \
          "$ARGONPKG"/root/etc/uci-defaults/30_luci-theme-argon; do
@@ -255,7 +269,7 @@ for d in htdocs root ucode; do
 		exit 1
 	fi
 done
-echo "[tr3600-unclamp] Argon 主題就位（htdocs / root / ucode）"
+echo "[tr3600] Argon 主題就位（htdocs / root / ucode）"
 
 echo "========================================================"
 echo " TR3600 build: part1 done (風扇插件 + Argon 主題；iStore 不裝)"
