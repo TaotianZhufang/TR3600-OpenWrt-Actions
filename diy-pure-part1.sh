@@ -233,7 +233,8 @@ if [ -d "$REPO_ROOT/files" ]; then
 	         usr/share/rpcd/acl.d/luci-app-homebox.json usr/share/rpcd/acl.d/luci-app-minieap.json \
 	         www/luci-static/resources/view/homebox/control.js \
 	         www/luci-static/resources/view/minieap/control.js \
-	         usr/sbin/tr3600-ipv6 etc/uci-defaults/90-tr3600-homebox; do
+	         usr/sbin/tr3600-ipv6 etc/uci-defaults/90-tr3600-homebox \
+	         etc/uci-defaults/91-tr3600-minieap; do
 		if [ ! -f "./files/$f" ]; then
 			echo "ERROR: files/$f 缺失（homebox / minieap / tr3600-ipv6）"
 			exit 1

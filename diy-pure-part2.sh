@@ -71,7 +71,8 @@ done
 for f in files/etc/uci-defaults/99-tr3600-network files/usr/libexec/rpcd/tr3600.usb \
          files/usr/libexec/rpcd/homebox files/usr/bin/homebox files/etc/init.d/homebox \
          files/usr/libexec/rpcd/minieap files/usr/sbin/minieap files/etc/init.d/minieap \
-         files/usr/sbin/tr3600-ipv6 files/etc/uci-defaults/90-tr3600-homebox; do
+         files/usr/sbin/tr3600-ipv6 files/etc/uci-defaults/90-tr3600-homebox \
+         files/etc/uci-defaults/91-tr3600-minieap; do
 	if [ -f "$f" ]; then
 		chmod 0755 "$f" && echo "[tr3600] chmod +x $f"
 	else

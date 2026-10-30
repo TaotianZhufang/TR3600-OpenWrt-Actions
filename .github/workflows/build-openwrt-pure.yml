@@ -879,9 +879,20 @@ jobs:
         # 固件号：人一眼能认出这一版是哪一个构建
         FIRMWARE_NO="OpenWrt-${BUILD_TIME}-r${{ github.run_number }}"
 
-        # 第三方 feed 的实际 commit（feeds/ 是 git checkout；没初始化就写 unknown）
-        FEED_KENZOK8_SHA=$(git -C feeds/kenzok8 rev-parse HEAD 2>/dev/null || echo unknown)
-        FEED_SMALL_SHA=$(git -C feeds/small rev-parse HEAD 2>/dev/null || echo unknown)
+        # 第三方 feed 的实际 commit（release 步骤在 workspace 根，feeds 在 openwrt/ 下）
+        FEED_KENZOK8_SHA=$(git -C openwrt/feeds/kenzok8 rev-parse HEAD 2>/dev/null || echo unknown)
+        FEED_SMALL_SHA=$(git -C openwrt/feeds/small rev-parse HEAD 2>/dev/null || echo unknown)
+        if [ "$FEED_KENZOK8_SHA" = unknown ] || [ "$FEED_SMALL_SHA" = unknown ]; then
+          for d in openwrt/feeds/*/; do
+            [ -d "$d/.git" ] || continue
+            case "$d" in
+              *kenzok8*) [ "$FEED_KENZOK8_SHA" = unknown ] && FEED_KENZOK8_SHA=$(git -C "$d" rev-parse HEAD 2>/dev/null) ;;
+              *small*)   [ "$FEED_SMALL_SHA" = unknown ] && FEED_SMALL_SHA=$(git -C "$d" rev-parse HEAD 2>/dev/null) ;;
+            esac
+          done
+          FEED_KENZOK8_SHA=${FEED_KENZOK8_SHA:-unknown}
+          FEED_SMALL_SHA=${FEED_SMALL_SHA:-unknown}
+        fi
 
         echo "release_tag=${RELEASE_TAG}" >> "$GITHUB_OUTPUT"
         echo "firmware_no=${FIRMWARE_NO}" >> "$GITHUB_OUTPUT"

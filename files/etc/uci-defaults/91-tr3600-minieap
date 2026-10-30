@@ -1,0 +1,12 @@
+#!/bin/sh
+# minieap（校园网认证）默认不启用；配置了账号才随系统启动。
+# 镜像构建会给 overlay 里的 init 脚本自动建 rc.d 链接，这里改回来。
+if [ -x /etc/init.d/minieap ]; then
+	if [ -n "$(sed -n 's/^username=//p' /etc/minieap.conf 2>/dev/null)" ]; then
+		/etc/init.d/minieap enable >/dev/null 2>&1
+	else
+		/etc/init.d/minieap disable >/dev/null 2>&1
+		/etc/init.d/minieap stop >/dev/null 2>&1
+	fi
+fi
+exit 0
