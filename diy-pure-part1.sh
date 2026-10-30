@@ -234,7 +234,13 @@ if [ -d "$REPO_ROOT/files" ]; then
 	         www/luci-static/resources/view/homebox/control.js \
 	         www/luci-static/resources/view/minieap/control.js \
 	         usr/sbin/tr3600-ipv6 etc/uci-defaults/90-tr3600-homebox \
-	         etc/uci-defaults/91-tr3600-minieap; do
+	         etc/uci-defaults/91-tr3600-minieap \
+	         usr/bin/bandix etc/init.d/bandix etc/config/bandix \
+	         usr/libexec/rpcd/luci.bandix \
+	         usr/share/luci/menu.d/luci-app-bandix.json usr/share/rpcd/acl.d/luci-app-bandix.json \
+	         usr/share/luci/status/bandix.json \
+	         www/luci-static/resources/bandix/devices.js \
+	         www/luci-static/resources/view/bandix/index.js; do
 		if [ ! -f "./files/$f" ]; then
 			echo "ERROR: files/$f 缺失（homebox / minieap / tr3600-ipv6）"
 			exit 1

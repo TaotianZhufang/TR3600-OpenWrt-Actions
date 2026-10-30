@@ -22,7 +22,7 @@ Cudy TR3600 v1（MT7987B + MT7990）的 OpenWrt 25.12 自编译固件，GitHub A
 
 Argon 3.1.1 主题；USB 存储/网卡/Android 共享/5G 模块/串口；
 ZeroTier、Tailscale、WireGuard、OpenVPN、mosdns、ddns-go、DDNS、aria2、Samba4、WebDAV；
-ttyd、USB 管理页、HomeBox 测速、nlbwmon、vnstat2、wifihistory、UPnP、WOL、usteer、TravelMate、minieap、usbmuxd、smartmontools、iperf3、tcpdump。
+ttyd、USB 管理页、HomeBox 测速、Bandix 设备管理（实时流量）、nlbwmon、vnstat2、wifihistory、UPnP、WOL、usteer、TravelMate、minieap、usbmuxd、smartmontools、iperf3、tcpdump。
 
 未内置：PassWall2/Xray、OpenClash、iStore、smartdns。
 
@@ -59,10 +59,14 @@ ubus call tr3600.usb configure '{"device":"usb0","metric":"200"}'
 
 ## 设备管理
 
-- **MAC-IP 绑定**：网络 → DHCP/DNS → 静态租约。
-- **流量统计**：状态 → 流量统计（nlbwmon）；状态 → Wi-Fi 历史（wifihistory）。
-- **限速**：官方没有按设备限速的图形页，本固件也不带 qos-scripts（全局策略、依赖 iptables，和 HWNAT 冲突）。需要按 IP 限速时用 tc 规则，或告诉我单独加。
-- **UPnP / WOL / 定时 Wi-Fi / 唤醒**：服务与网络菜单里的对应页面。
+网络 → **设备管理（Bandix）**：每台设备的实时上/下行速率、累计流量、Wi-Fi 信道、主机名；
+连接列表、DNS 查询（默认关）、按设备限速/配额/时间段也在这个页面。
+
+- 默认只开「流量 + 连接」两个模块，DNS 监控在设置页里打开；
+- 统计基于 eBPF/tc，实测开着 HWNAT 也能准确计数；若发现偏低，到「网络 → 防火墙」关掉流量卸载再试；
+- **MAC-IP 绑定**：网络 → DHCP/DNS → 静态租约；
+- **历史流量**：状态 → 流量统计（nlbwmon）、Wi-Fi 历史（wifihistory）；
+- **UPnP / WOL / 定时 Wi-Fi**：服务与网络菜单里的对应页面。
 
 ## 关闭 IPv6
 

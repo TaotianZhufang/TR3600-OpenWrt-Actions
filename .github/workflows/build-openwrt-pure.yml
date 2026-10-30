@@ -503,6 +503,7 @@ jobs:
           CONFIG_PACKAGE_luci-app-vnstat2 \
           CONFIG_PACKAGE_luci-app-p910nd \
           CONFIG_PACKAGE_luci-app-ser2net \
+          CONFIG_PACKAGE_curl \
         ; do
           if grep -q "^${sym}=y" .config; then
             echo "  [OK] $sym"
@@ -524,7 +525,7 @@ jobs:
         # 这里只打印实际状态，不做断言 —— 知道镜像里到底有没有就行。
         echo "==== geo 数据（mosdns 依赖自动选中，无法在 config 关闭）===="
         grep -E "^CONFIG_PACKAGE_(v2ray-geoip|v2ray-geosite|geo2txt|geoview)=" .config || echo "  (none)"
-        echo "✅ 必需包齐全（57 项：fq / wpad / USB / VPN / samba4 / DDNS / Argon / ttyd / 设备管理 / 漫游 / 工具，含 daemon）"
+        echo "✅ 必需包齐全（58 项：fq / wpad / USB / VPN / samba4 / DDNS / Argon / ttyd / 设备管理 / 漫游 / 工具，含 daemon）"
         echo "========================================"
 
     # =========================================================
@@ -918,7 +919,7 @@ jobs:
         | USB | 存储、USB 网卡、Android 共享（RNDIS/NCM/ECM）、iPhone（usbmuxd）、5G 模块（QMI/MBIM）、USB 串口 |
         | 网络 | ZeroTier、Tailscale、WireGuard、OpenVPN、mosdns、ddns-go、DDNS、aria2、Samba4、WebDAV |
         | 工具 | ttyd、USB 管理页、lsusb/lspci、ethtool、iperf3、tcpdump、smartmontools |
-        | 设备管理 | 静态租约、nlbwmon、vnstat2、wifihistory、UPnP、WOL |
+        | 设备管理 | Bandix 实时流量、静态租约、nlbwmon、vnstat2、wifihistory、UPnP、WOL |
         | 漫游/认证 | usteer、TravelMate、minieap（校园网） |
         | 测速 | HomeBox（:3300）、iperf3 |
 

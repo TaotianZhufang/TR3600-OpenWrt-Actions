@@ -39,6 +39,11 @@
 - HomeBox：iStoreOS 的测速工具，Go 静态二进制取自本机旧固件备份（linkease/homebox，许可以上游为准）。
 - 两者原样内置，未修改；minieap 的账号密码在 `/etc/minieap.conf`，默认为空。
 
+## 3d. Bandix（设备管理）
+- LuCI 前端与后端二进制来自 timsaya/luci-app-bandix、timsaya/openwrt-bandix（Apache-2.0），
+  随固件内置、未修改源码；二进制为 aarch64_cortex-a53 构建。
+- 中文翻译来自 luci-i18n-bandix-zh-cn（同一上游）。
+
 ## 4. USB 管理页面
 - files/usr/libexec/rpcd/tr3600.usb、files/usr/share/luci/... 与 files/www/...
   来自 https://github.com/EDBWDY/cudy-tr3600-openwrt 的 luci-app-tr3600-usb 包
